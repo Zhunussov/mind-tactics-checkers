@@ -140,6 +140,7 @@ export default function MindTacticsCheckers() {
     if (opponent) setMatchedOpponent(opponent);
   };
 
+  // ИСПРАВЛЕНО: Имя соперника теперь выбирается СРАЗУ при старте поиска
   const handleModeSelection = (mode: "ai" | "local" | "online") => {
     if (!isLoggedIn) {
       setAuthTab("signup");
@@ -148,11 +149,12 @@ export default function MindTacticsCheckers() {
     }
 
     if (mode === "online") {
+      const filteredPool = leaderboardData.filter(p => !p.isCurrentUser);
+      const randomOpponent = filteredPool[Math.floor(Math.random() * filteredPool.length)] || leaderboardData[1];
+      setMatchedOpponent(randomOpponent); // Сразу записываем, чтобы радар показал инфу!
       setIsMatchmaking(true);
+      
       setTimeout(() => {
-        const filteredPool = leaderboardData.filter(p => !p.isCurrentUser);
-        const randomOpponent = filteredPool[Math.floor(Math.random() * filteredPool.length)] || leaderboardData[1];
-        setMatchedOpponent(randomOpponent);
         setIsMatchmaking(false);
         initGame("online", randomOpponent);
       }, 2500);
@@ -168,7 +170,7 @@ export default function MindTacticsCheckers() {
     setIsAuthModalOpen(false);
   };
 
-  // ПРАВИЛА РУССКИХ ШАШЕК: Дальнобойная дамка и серийные взятия
+  // ПРАВИЛА РУССКИХ ШАШЕК
   const getAllCapturesForPlayer = (currentBoard: BoardState, player: PlayerColor): Move[] => {
     const captures: Move[] = [];
     for (let r = 0; r < 8; r++) {
@@ -206,7 +208,6 @@ export default function MindTacticsCheckers() {
         }
       });
     } else {
-      // Дальнобойная дамка (Полет по диагонали)
       captureDirections.forEach(([dr, dc]) => {
         let nr = r + dr, nc = c + dc;
         let targetPiece: [number, number] | null = null;
@@ -267,14 +268,13 @@ export default function MindTacticsCheckers() {
     const notation = `${piece.color === "w" ? "Белые" : "Черные"}: (${fr},${fc}) ➔ (${tr},${tc})${move.captures.length ? " ⚔️" : ""}`;
     setMoveHistory(prev => [notation, ...prev.slice(0, 9)]);
 
-    // Проверка на комбо-удар (серийные взятия)
     if (move.captures.length > 0) {
       const nextCaptures = getPieceMoves(newBoard, tr, tc).filter(m => m.captures.length > 0);
       if (nextCaptures.length > 0) {
         setBoard(newBoard);
         setSelectedPiece([tr, tc]);
         setAvailableMoves(nextCaptures);
-        return; // Ход НЕ переходит, игрок бьет дальше!
+        return;
       }
     }
 
@@ -300,7 +300,6 @@ export default function MindTacticsCheckers() {
     }
   };
 
-  // Подсчет рейтингов при завершении матча
   const handleMatchEnd = (matchWinner: PlayerColor) => {
     setWinner(matchWinner);
     if (matchWinner === "w") {
@@ -324,10 +323,9 @@ export default function MindTacticsCheckers() {
       }
     }
 
-    // ИИ-Советник генерирует разбор полетов
     if (matchWinner === "w") {
       setAiCoachReport([
-        "🧠 Анализ MindTactics Coach: Мастерский контроль центра поля! Твой прорыв по флангу лишил соперника пространства.",
+        "🧠 Анализ MindTactics Coach: Мастерский контроль центра поля! Твой прорыв по флангу лишел соперника пространства.",
         "💡 Совет: Твой стрик растет! Продолжай удерживать дальнобойных дамок на крайних диагоналях для контроля углов."
       ]);
     } else {
@@ -338,7 +336,14 @@ export default function MindTacticsCheckers() {
     }
   };
 
-  // Логика соперника (ИИ / Игрок)
+  // ИСПРАВЛЕНО: Функция для корректного возврата в лобби (закрывает модалку победы)
+  const handleExitToLobby = () => {
+    setBoard([]);
+    setWinner(null);
+    setAiCoachReport(null);
+  };
+
+  // Логика ИИ
   useEffect(() => {
     if (turn === "b" && !winner && board.length > 0) {
       setIsThinking(true);
@@ -376,7 +381,6 @@ export default function MindTacticsCheckers() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50 font-sans selection:bg-amber-500/30 flex flex-col justify-between">
       
-      {/* ШАПКА С БРЕНДИНГОМ И КРЕАТИВНЫМ ЛОГОТИПОМ */}
       <header className="border-b border-slate-800 px-6 py-4 flex justify-between items-center bg-slate-950/80 backdrop-blur-md sticky top-0 z-40">
         <div className="flex items-center space-x-3">
           <div className="bg-gradient-to-tr from-amber-500 to-orange-600 p-2.5 rounded-xl shadow-lg shadow-orange-500/20 flex items-center justify-center relative group">
@@ -421,13 +425,10 @@ export default function MindTacticsCheckers() {
         </div>
       </header>
 
-      {/* РАБОЧАЯ ОБЛАСТЬ (ЭКРАНЫ ЛОББИ ИЛИ АРЕНЫ) */}
       <main className="max-w-7xl mx-auto p-4 lg:p-8 grid grid-cols-1 lg:grid-cols-3 gap-8 w-full flex-grow">
         
         {board.length === 0 ? (
-          /* ================= ЛОББИ ЭКРАН (ГЛАВНЫЙ ХАБ) ================= */
           <>
-            {/* Слева: Карточка профиля */}
             <div className="space-y-6">
               <div className="bg-slate-900/60 border border-slate-800 p-5 rounded-2xl space-y-4 backdrop-blur-sm relative overflow-hidden">
                 <h2 className="font-bold text-xs text-slate-400 uppercase tracking-wider">Ваш Прогресс</h2>
@@ -460,7 +461,6 @@ export default function MindTacticsCheckers() {
               </div>
             </div>
 
-            {/* Центр: Выбор режимов */}
             <div className="space-y-4 flex flex-col justify-center">
               <div className="text-center space-y-2 mb-4">
                 <h2 className="text-2xl font-black tracking-tight text-white">Выберите режим сражения</h2>
@@ -512,7 +512,6 @@ export default function MindTacticsCheckers() {
               </div>
             </div>
 
-            {/* Справа: Лидерборд с фильтром городов */}
             <div className="space-y-6">
               <div className="bg-slate-900/60 border border-slate-800 p-5 rounded-2xl space-y-3 backdrop-blur-sm">
                 <div className="flex justify-between items-center">
@@ -552,14 +551,13 @@ export default function MindTacticsCheckers() {
             </div>
           </>
         ) : (
-          /* ================= ЭКРАН АРЕНЫ (ДОСКА) ================= */
+          /* ЭКРАН АРЕНЫ */
           <div className="col-span-1 lg:col-span-3 grid grid-cols-1 lg:grid-cols-3 gap-8 items-center w-full">
             
-            {/* Панель истории слева */}
             <div className="bg-slate-900/60 border border-slate-800 p-5 rounded-2xl h-fit space-y-4">
               <div className="flex justify-between items-center">
                 <h3 className="font-bold text-xs text-slate-400 uppercase tracking-wider">Ходы партии</h3>
-                <button onClick={() => setBoard([])} className="text-xxs text-red-400 hover:underline font-bold">Сдаться / Выйти</button>
+                <button onClick={handleExitToLobby} className="text-xxs text-red-400 hover:underline font-bold">Сдаться / Выйти</button>
               </div>
               <div className="bg-slate-950 p-3 rounded-xl h-48 overflow-y-auto font-mono text-xxs text-slate-400 space-y-1 text-left">
                 {moveHistory.length === 0 && <p className="text-slate-600 italic">История пуста...</p>}
@@ -567,7 +565,6 @@ export default function MindTacticsCheckers() {
               </div>
             </div>
 
-            {/* Центр: Сама игровая доска */}
             <div className="flex flex-col items-center space-y-4">
               <div className="h-6 w-full flex items-center justify-center">
                 {isThinking && (
@@ -611,7 +608,6 @@ export default function MindTacticsCheckers() {
               </div>
             </div>
 
-            {/* Правая часть: Советник тренера */}
             <div className="bg-slate-900/60 border border-slate-800 p-5 rounded-2xl h-fit space-y-3">
               <h3 className="font-bold text-sm text-purple-400 uppercase tracking-wider">Разбор AI Coach</h3>
               <p className="text-xs text-slate-400 leading-relaxed">Доиграйте партию до конца, чтобы получить подробные разборы тактических ходов от искусственного интеллекта.</p>
@@ -620,8 +616,6 @@ export default function MindTacticsCheckers() {
           </div>
         )}
       </main>
-
-      {/* ================= ВСЕ МОДАЛЬНЫЕ ОКНА И ДИАЛОГИ ================= */}
 
       {/* Модалка авторизации */}
       {isAuthModalOpen && (
@@ -669,22 +663,28 @@ export default function MindTacticsCheckers() {
         </div>
       )}
 
-      {/* Экран матчмейкинга (Радар поиска) */}
-      {isMatchmaking && (
+      {/* ИСПРАВЛЕНО: Радар теперь КРЕСТНО выводит имя и инфу подобранного соперника */}
+      {isMatchmaking && matchedOpponent && (
         <div className="fixed inset-0 bg-slate-950/95 z-50 flex flex-col items-center justify-center space-y-6 text-center">
           <div className="relative flex items-center justify-center">
             <div className="absolute h-36 w-36 rounded-full border border-amber-500/20 animate-ping" />
             <div className="absolute h-24 w-24 rounded-full border border-amber-500/40 animate-pulse" />
             <Search className="h-8 w-8 text-amber-400 animate-spin" />
           </div>
-          <div className="space-y-1">
-            <h3 className="text-lg font-black text-white tracking-wide">Поиск гроссмейстера...</h3>
-            <p className="text-xs text-slate-500 font-medium">Сканируем активную таблицу лидеров Казахстана</p>
+          <div className="space-y-2 bg-slate-900/50 p-4 rounded-xl border border-slate-800/80 max-w-xs w-full">
+            <img src={matchedOpponent.avatar} alt="Opponent" className="w-12 h-12 mx-auto rounded-xl bg-slate-950 border border-slate-800" />
+            <div>
+              <h3 className="text-sm font-black text-white">Противник: {matchedOpponent.name}</h3>
+              <p className="text-xxs text-amber-400 font-medium tracking-wider flex items-center justify-center mt-1">
+                <MapPin className="h-2.5 w-2.5 mr-0.5 text-amber-500" /> {matchedOpponent.city} • {matchedOpponent.rating} Elo
+              </p>
+            </div>
           </div>
+          <p className="text-xxs text-slate-500 animate-pulse uppercase tracking-widest font-mono">Синхронизация игрового поля блица...</p>
         </div>
       )}
 
-      {/* Экран окончания игры (Результаты матча + Разбор ИИ) */}
+      {/* Экран окончания игры */}
       {winner && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 max-w-md w-full p-6 rounded-2xl text-center space-y-5 shadow-2xl">
@@ -715,7 +715,8 @@ export default function MindTacticsCheckers() {
               </div>
             )}
 
-            <button onClick={() => setBoard([])} className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-xl text-slate-200 transition">
+            {/* ИСПРАВЛЕНО: Вызываем handleExitToLobby вместо setBoard([]) */}
+            <button onClick={handleExitToLobby} className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-xl text-slate-200 transition">
               Вернуться в лобби
             </button>
           </div>
@@ -725,7 +726,7 @@ export default function MindTacticsCheckers() {
       {/* Модалка профиля лидеров */}
       {selectedLeaderboardPlayer && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 max-w-xs w-full p-6 rounded-2xl text-center space-y-4 shadow-2xl">
+          <div className="bg-slate-900 border border-slate-800 max-xs w-full p-6 rounded-2xl text-center space-y-4 shadow-2xl">
             <img src={selectedLeaderboardPlayer.avatar} alt="Profile" className="w-20 h-20 mx-auto rounded-2xl bg-slate-950 border border-slate-800 p-1" />
             <div>
               <h3 className="font-black text-lg text-white">{selectedLeaderboardPlayer.name}</h3>
@@ -758,7 +759,6 @@ export default function MindTacticsCheckers() {
         </div>
       )}
 
-      {/* ФУТЕР С АВТОРСТВОМ */}
       <footer className="border-t border-slate-900 py-6 text-center text-xxs text-slate-600 w-full bg-slate-950">
         <p className="font-bold">Mind Tactics: Elite Checkers System © 2026</p>
         <p className="text-slate-700 pt-0.5">Designed & Developed by <span className="font-bold text-amber-500/70">TEMIRLAN ZHUNUSSOV</span>. All rights reserved.</p>
