@@ -43,7 +43,7 @@ export default function MindTacticsCheckers() {
   const [selectedPiece, setSelectedPiece] = useState<[number, number] | null>(null);
   const [availableMoves, setAvailableMoves] = useState<Move[]>([]);
   const [gameMode, setGameMode] = useState<"ai" | "local" | "online">("ai");
-  const [winner, setWinner] = useState<PlayerColor | "draw" | null>(null);
+  const [winner, setWinner] = useState<PlayerColor | "draw" | "time_w" | "time_b" | null>(null);
   
   // Экраны и авторизация
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -59,6 +59,10 @@ export default function MindTacticsCheckers() {
   const [playerRating, setPlayerRating] = useState(1200);
   const [winStreak, setWinStreak] = useState(0);
   const [selectedAvatar, setSelectedAvatar] = useState("https://api.dicebear.com/7.x/avataaars/svg?seed=Felix");
+
+  // БЛИЦ-ТАЙМЕРЫ (3 минуты = 180 секунд)
+  const [whiteTime, setWhiteTime] = useState(180);
+  const [blackTime, setBlackTime] = useState(180);
 
   // Фильтрация рейтинга и матчи
   const [selectedCityFilter, setSelectedCityFilter] = useState("All");
@@ -80,7 +84,6 @@ export default function MindTacticsCheckers() {
     "https://api.dicebear.com/7.x/avataaars/svg?seed=Max"
   ];
 
-  // Динамическая таблица лидеров
   const [leaderboardData, setLeaderboardData] = useState<LeaderboardPlayer[]>([
     { rank: 1, name: "Арман К.", city: "Almaty", rating: 2410, winRate: "78%", level: 8, avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=James", streak: 12 },
     { rank: 2, name: "Данияр С.", city: "Astana", rating: 2295, winRate: "71%", level: 6, avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Max", streak: 7 },
@@ -91,7 +94,6 @@ export default function MindTacticsCheckers() {
   const playerLevel = Math.floor(playerXP / 1000) + 1;
   const currentLevelXP = playerXP % 1000;
 
-  // Синхронизация профиля в таблице
   useEffect(() => {
     if (isLoggedIn) {
       const updatedList = [
@@ -117,6 +119,34 @@ export default function MindTacticsCheckers() {
     }
   }, [isLoggedIn, playerNickname, playerCity, playerRating, playerLevel, selectedAvatar, winStreak]);
 
+  // Счётчик времени матча
+  useEffect(() => {
+    if (board.length > 0 && !winner) {
+      const interval = setInterval(() => {
+        if (turn === "w") {
+          setWhiteTime((prev) => {
+            if (prev <= 1) {
+              clearInterval(interval);
+              handleMatchEnd("b", true); // Поражение белых по времени
+              return 0;
+            }
+            return prev - 1;
+          });
+        } else {
+          setBlackTime((prev) => {
+            if (prev <= 1) {
+              clearInterval(interval);
+              handleMatchEnd("w", true); // Поражение черных по времени
+              return 0;
+            }
+            return prev - 1;
+          });
+        }
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [turn, board, winner]);
+
   const initGame = (mode: "ai" | "local" | "online" = "ai", opponent: LeaderboardPlayer | null = null) => {
     const newBoard: BoardState = Array(8).fill(null).map(() => Array(8).fill(null));
     let idCounter = 0;
@@ -137,10 +167,11 @@ export default function MindTacticsCheckers() {
     setMoveHistory([]);
     setGameMode(mode);
     setIsThinking(false);
+    setWhiteTime(180);
+    setBlackTime(180);
     if (opponent) setMatchedOpponent(opponent);
   };
 
-  // ИСПРАВЛЕНО: Имя соперника теперь выбирается СРАЗУ при старте поиска
   const handleModeSelection = (mode: "ai" | "local" | "online") => {
     if (!isLoggedIn) {
       setAuthTab("signup");
@@ -151,7 +182,7 @@ export default function MindTacticsCheckers() {
     if (mode === "online") {
       const filteredPool = leaderboardData.filter(p => !p.isCurrentUser);
       const randomOpponent = filteredPool[Math.floor(Math.random() * filteredPool.length)] || leaderboardData[1];
-      setMatchedOpponent(randomOpponent); // Сразу записываем, чтобы радар показал инфу!
+      setMatchedOpponent(randomOpponent);
       setIsMatchmaking(true);
       
       setTimeout(() => {
@@ -170,7 +201,7 @@ export default function MindTacticsCheckers() {
     setIsAuthModalOpen(false);
   };
 
-  // ПРАВИЛА РУССКИХ ШАШЕК
+  // ДВИЖОК РУССКИХ ШАШЕК
   const getAllCapturesForPlayer = (currentBoard: BoardState, player: PlayerColor): Move[] => {
     const captures: Move[] = [];
     for (let r = 0; r < 8; r++) {
@@ -234,7 +265,9 @@ export default function MindTacticsCheckers() {
 
   const handleCellClick = (r: number, c: number) => {
     if (winner || isThinking || board.length === 0) return;
-    if (gameMode === "ai" && turn === "b") return;
+    
+    // Блокируем клики по доске, если сейчас ход бота в онлайн или соло режимах
+    if (turn === "b" && gameMode !== "local") return;
 
     const piece = board[r][c];
     if (piece && piece.color === turn) {
@@ -300,8 +333,13 @@ export default function MindTacticsCheckers() {
     }
   };
 
-  const handleMatchEnd = (matchWinner: PlayerColor) => {
-    setWinner(matchWinner);
+  const handleMatchEnd = (matchWinner: PlayerColor, isTimeOut: boolean = false) => {
+    if (isTimeOut) {
+      setWinner(matchWinner === "w" ? "time_w" : "time_b");
+    } else {
+      setWinner(matchWinner);
+    }
+
     if (matchWinner === "w") {
       setPlayerXP(prev => prev + 500);
       setPlayerRating(prev => prev + 25);
@@ -325,27 +363,26 @@ export default function MindTacticsCheckers() {
 
     if (matchWinner === "w") {
       setAiCoachReport([
-        "🧠 Анализ MindTactics Coach: Мастерский контроль центра поля! Твой прорыв по флангу лишел соперника пространства.",
+        isTimeOut ? "🧠 Анализ MindTactics Coach: Отличная динамика! Ты превзошел соперника по скорости принятия решений." : "🧠 Анализ MindTactics Coach: Мастерский контроль центра поля! Твой прорыв по флангу лишил соперника пространства.",
         "💡 Совет: Твой стрик растет! Продолжай удерживать дальнобойных дамок на крайних диагоналях для контроля углов."
       ]);
     } else {
       setAiCoachReport([
-        "⚠️ Анализ MindTactics Coach: Критическая ошибка! Ты оставил открытой тыловую линию, что позволило сопернику прорваться.",
+        isTimeOut ? "⚠️ Анализ MindTactics Coach: Время вышло! В 3-минутном Блице старайся делать очевидные ходы быстрее, не задумываясь дольше 5 секунд." : "⚠️ Анализ MindTactics Coach: Критическая ошибка! Ты оставил открытой тыловую линию, что позволило сопернику прорваться.",
         "💡 Совет: Никогда не уводи шашки с последней горизонтали слишком рано, держи их как резерв защиты."
       ]);
     }
   };
 
-  // ИСПРАВЛЕНО: Функция для корректного возврата в лобби (закрывает модалку победы)
   const handleExitToLobby = () => {
     setBoard([]);
     setWinner(null);
     setAiCoachReport(null);
   };
 
-  // Логика ИИ
+  // ХОД ИИ АКТИВИРУЕТСЯ СТРОГО ЕСЛИ РЕЖИМ НЕ LOCAL
   useEffect(() => {
-    if (turn === "b" && !winner && board.length > 0) {
+    if (turn === "b" && !winner && board.length > 0 && gameMode !== "local") {
       setIsThinking(true);
       const delay = gameMode === "online" ? 2000 : 700;
 
@@ -377,6 +414,13 @@ export default function MindTacticsCheckers() {
       return () => clearTimeout(timer);
     }
   }, [turn, gameMode, board, winner]);
+
+  // Форматирование секунд в вид 00:00
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50 font-sans selection:bg-amber-500/30 flex flex-col justify-between">
@@ -476,7 +520,7 @@ export default function MindTacticsCheckers() {
                       </div>
                       <div className="text-left">
                         <h3 className="font-bold text-sm text-white">Одиночная vs ИИ-Бот</h3>
-                        <p className="text-xs text-slate-400">Тренировка тактики против адаптивного ИИ</p>
+                        <p className="text-xs text-slate-400">3-минутный Блиц тактики против адаптивного ИИ</p>
                       </div>
                     </div>
                   </div>
@@ -490,7 +534,7 @@ export default function MindTacticsCheckers() {
                       </div>
                       <div className="text-left">
                         <h3 className="font-bold text-sm text-white">Вдвоем (Один экран)</h3>
-                        <p className="text-xs text-slate-400">Локальная битва с другом на одном устройстве</p>
+                        <p className="text-xs text-slate-400">Поочередная игра для двух людей с таймером</p>
                       </div>
                     </div>
                   </div>
@@ -566,6 +610,18 @@ export default function MindTacticsCheckers() {
             </div>
 
             <div className="flex flex-col items-center space-y-4">
+              
+              {/* ВИЗУАЛЬНЫЕ БЛИЦ-ТАЙМЕРЫ ДЛЯ ИГРОКОВ */}
+              <div className="w-full max-w-[420px] flex justify-between items-center px-2 bg-slate-900/40 border border-slate-800/80 p-2.5 rounded-xl">
+                <div className={`px-3 py-1 rounded-lg border font-mono text-xs font-bold transition-colors ${turn === 'w' ? 'bg-amber-500 text-black border-amber-400' : 'bg-slate-950 text-slate-400 border-slate-800'}`}>
+                  ⚪ {formatTime(whiteTime)}
+                </div>
+                <span className="text-xxs text-slate-500 font-bold uppercase tracking-wider">Blitz 3 Min</span>
+                <div className={`px-3 py-1 rounded-lg border font-mono text-xs font-bold transition-colors ${turn === 'b' ? 'bg-amber-500 text-black border-amber-400' : 'bg-slate-950 text-slate-400 border-slate-800'}`}>
+                  ⚫ {formatTime(blackTime)}
+                </div>
+              </div>
+
               <div className="h-6 w-full flex items-center justify-center">
                 {isThinking && (
                   <div className="flex items-center space-x-2 text-xs font-bold px-3 py-1 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-full animate-pulse">
@@ -578,9 +634,9 @@ export default function MindTacticsCheckers() {
               <div className="flex justify-between w-full max-w-[420px] text-xs text-slate-400 font-bold px-1">
                 <span>Вы (Белые)</span>
                 <span className="text-amber-400 bg-slate-900 px-3 py-0.5 rounded-full border border-slate-800 uppercase tracking-wide">
-                  ХОД: {turn === "w" ? "ВАШ" : "БОТА"}
+                  ХОД: {turn === "w" ? "БЕЛЫХ" : "ЧЕРНЫХ"}
                 </span>
-                <span>{gameMode === "ai" ? "ИИ-Бот" : gameMode === "online" ? matchedOpponent?.name : "Игрок 2"}</span>
+                <span>{gameMode === "ai" ? "ИИ-Бот" : gameMode === "online" ? matchedOpponent?.name : "Игрок 2 (Черные)"}</span>
               </div>
 
               <div className={`aspect-square w-full max-w-[420px] bg-slate-900 p-2 rounded-2xl border border-slate-800 grid grid-cols-8 gap-0.5 shadow-2xl relative ${isThinking ? "opacity-90 cursor-not-allowed" : ""}`}>
@@ -663,7 +719,7 @@ export default function MindTacticsCheckers() {
         </div>
       )}
 
-      {/* ИСПРАВЛЕНО: Радар теперь КРЕСТНО выводит имя и инфу подобранного соперника */}
+      {/* Экран матчмейкинга */}
       {isMatchmaking && matchedOpponent && (
         <div className="fixed inset-0 bg-slate-950/95 z-50 flex flex-col items-center justify-center space-y-6 text-center">
           <div className="relative flex items-center justify-center">
@@ -684,27 +740,32 @@ export default function MindTacticsCheckers() {
         </div>
       )}
 
-      {/* Экран окончания игры */}
+      {/* Экран окончания игры (С ИСПРАВЛЕННЫМ ТАЙМАУТОМ ВРЕМЕНИ) */}
       {winner && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 max-w-md w-full p-6 rounded-2xl text-center space-y-5 shadow-2xl">
             <div>
-              <span className={`text-4xl block mb-2 ${winner === "w" ? "animate-bounce" : ""}`}>{winner === "w" ? "🏆" : "💀"}</span>
-              <h3 className={`font-black text-2xl tracking-tight ${winner === "w" ? "text-amber-400" : "text-red-500"}`}>
-                {winner === "w" ? "МАТЧ ВЫИГРАН!" : "ПОРАЖЕНИЕ"}
+              <span className="text-4xl block mb-2">
+                {winner === "w" || winner === "time_w" ? "🏆" : "💀"}
+              </span>
+              <h3 className={`font-black text-2xl tracking-tight ${winner === "w" || winner === "time_w" ? "text-amber-400" : "text-red-500"}`}>
+                {winner === "w" && "МАТЧ ВЫИГРАН!"}
+                {winner === "time_w" && "ПОБЕДА ПО ВРЕМЕНИ! ⏱️"}
+                {winner === "b" && "ПОРАЖЕНИЕ"}
+                {winner === "time_b" && "ПРОИГРЫШ ПО ВРЕМЕНИ! ⏱️"}
               </h3>
-              {winner === "w" && <p className="text-xxs text-orange-400 font-bold tracking-wider uppercase mt-1">СТРИК ПРОДОЛЖЕН! 🔥</p>}
+              {(winner === "w" || winner === "time_w") && <p className="text-xxs text-orange-400 font-bold tracking-wider uppercase mt-1">СТРИК ПРОДОЛЖЕН! 🔥</p>}
             </div>
 
             <div className="grid grid-cols-2 gap-3 bg-slate-950 p-4 rounded-xl border border-slate-800/60 text-left text-xs">
               <div className="space-y-1">
                 <p className="text-slate-500 font-bold">Вы ({playerNickname}):</p>
-                <p className="font-mono text-emerald-400 font-bold text-sm">+{winner === "w" ? "25" : "-20"} Elo</p>
-                <p className="text-xxs text-slate-400">+{winner === "w" ? "500" : "0"} XP</p>
+                <p className="font-mono text-emerald-400 font-bold text-sm">+{winner === "w" || winner === "time_w" ? "25" : "-20"} Elo</p>
+                <p className="text-xxs text-slate-400">+{winner === "w" || winner === "time_w" ? "500" : "0"} XP</p>
               </div>
               <div className="space-y-1 border-l border-slate-800 pl-3">
                 <p className="text-slate-500 font-bold">{gameMode === "online" ? matchedOpponent?.name : "ИИ-Бот"}:</p>
-                <p className={`font-mono font-bold text-sm ${winner === "w" ? "text-red-400" : "text-emerald-400"}`}>{winner === "w" ? "-20" : "+25"} Elo</p>
+                <p className={`font-mono font-bold text-sm ${winner === "w" || winner === "time_w" ? "text-red-400" : "text-emerald-400"}`}>{winner === "w" || winner === "time_w" ? "-20" : "+25"} Elo</p>
               </div>
             </div>
 
@@ -715,7 +776,6 @@ export default function MindTacticsCheckers() {
               </div>
             )}
 
-            {/* ИСПРАВЛЕНО: Вызываем handleExitToLobby вместо setBoard([]) */}
             <button onClick={handleExitToLobby} className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-xl text-slate-200 transition">
               Вернуться в лобби
             </button>
