@@ -1,22 +1,11 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import Trophy from "lucide-react/dist/esm/icons/trophy";
-import Sparkles from "lucide-react/dist/esm/icons/sparkles";
-import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw";
-import Layers from "lucide-react/dist/esm/icons/layers";
-import Users from "lucide-react/dist/esm/icons/users";
-import Zap from "lucide-react/dist/esm/icons/zap";
-import CheckCircle2 from "lucide-react/dist/esm/icons/check-circle-2";
-import BrainCircuit from "lucide-react/dist/esm/icons/brain-circuit";
-import Search from "lucide-react/dist/esm/icons/search";
-import Flame from "lucide-react/dist/esm/icons/flame";
-import MapPin from "lucide-react/dist/esm/icons/map-pin";
-import Loader2 from "lucide-react/dist/esm/icons/loader-2";
-import User from "lucide-react/dist/esm/icons/user";
-import Mail from "lucide-react/dist/esm/icons/mail";
-import Lock from "lucide-react/dist/esm/icons/lock";
-import LogOut from "lucide-react/dist/esm/icons/log-out";
+import { 
+  Trophy, Sparkles, RefreshCw, Layers, Users, Zap, 
+  CheckCircle2, BrainCircuit, Search, Flame, MapPin, 
+  Loader2, User, Mail, Lock, LogOut 
+} from "lucide-react";
 
 type PieceType = "pawn" | "king";
 type PlayerColor = "w" | "b";
