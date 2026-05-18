@@ -1,844 +1,779 @@
+"use client";
 
-"use client"
+import React, { useState, useEffect } from "react";
+import Trophy from "lucide-react/dist/esm/icons/trophy";
+import Sparkles from "lucide-react/dist/esm/icons/sparkles";
+import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw";
+import Layers from "lucide-react/dist/esm/icons/layers";
+import Users from "lucide-react/dist/esm/icons/users";
+import Zap from "lucide-react/dist/esm/icons/zap";
+import CheckCircle2 from "lucide-react/dist/esm/icons/check-circle-2";
+import BrainCircuit from "lucide-react/dist/esm/icons/brain-circuit";
+import Search from "lucide-react/dist/esm/icons/search";
+import Flame from "lucide-react/dist/esm/icons/flame";
+import MapPin from "lucide-react/dist/esm/icons/map-pin";
+import Loader2 from "lucide-react/dist/esm/icons/loader-2";
+import User from "lucide-react/dist/esm/icons/user";
+import Mail from "lucide-react/dist/esm/icons/mail";
+import Lock from "lucide-react/dist/esm/icons/lock";
+import LogOut from "lucide-react/dist/esm/icons/log-out";
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { 
-  Trophy, Sparkles, RefreshCw, Users, Zap, 
-  CheckCircle2, BrainCircuit, Loader2,
-  ArrowRight, ShieldCheck, CreditCard,
-  Layers, Search, Flame, MapPin, User, Mail, Lock, LogOut,
-  Target, Globe, ChevronRight, XCircle, Crown
-} from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
-import { 
-  INITIAL_BOARD, 
-  Piece, 
-  getAllValidMoves, 
-  getValidMoves,
-  makeMove, 
-  Move, 
-  boardToString, 
-  getPieceColor 
-} from '@/lib/game-logic';
-import { Leaderboard, MOCK_PLAYERS } from '@/components/checkers/leaderboard';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Toaster } from '@/components/ui/toaster';
-import { useToast } from '@/hooks/use-toast';
-import { postMatchAICoachAnalysis } from '@/ai/flows/post-match-ai-coach-analysis-flow';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Progress } from '@/components/ui/progress';
+type PieceType = "pawn" | "king";
+type PlayerColor = "w" | "b";
 
-type ScreenState = 'lobby' | 'matchmaking' | 'arena';
+interface Piece {
+  color: PlayerColor;
+  type: PieceType;
+  id: string;
+}
 
-const AVATARS = [
-  'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix',
-  'https://api.dicebear.com/7.x/avataaars/svg?seed=Aneka',
-  'https://api.dicebear.com/7.x/avataaars/svg?seed=James',
-  'https://api.dicebear.com/7.x/avataaars/svg?seed=Sophia',
-  'https://api.dicebear.com/7.x/avataaars/svg?seed=Max',
-];
+type BoardState = (Piece | null)[][];
 
-const CITIES = ['Almaty', 'Astana', 'Shymkent', 'Semey'];
+interface Move {
+  from: [number, number];
+  to: [number, number];
+  captures: [number, number][];
+  isKingTransition: boolean;
+}
 
-export default function MindTacticsApp() {
-  const { toast } = useToast();
+interface LeaderboardPlayer {
+  rank: number;
+  name: string;
+  city: string;
+  rating: number;
+  winRate: string;
+  level: number;
+  avatar: string;
+  streak: number;
+  isCurrentUser?: boolean;
+}
+
+export default function MindTacticsCheckers() {
+  const [board, setBoard] = useState<BoardState>([]);
+  const [turn, setTurn] = useState<PlayerColor>("w");
+  const [selectedPiece, setSelectedPiece] = useState<[number, number] | null>(null);
+  const [availableMoves, setAvailableMoves] = useState<Move[]>([]);
+  const [gameMode, setGameMode] = useState<"ai" | "local" | "online">("ai");
+  const [winner, setWinner] = useState<PlayerColor | "draw" | null>(null);
   
-  // App & User State
-  const [currentScreen, setCurrentScreen] = useState<ScreenState>('lobby');
-  const [userProfile, setUserProfile] = useState<any>(null);
+  // Экраны и авторизация
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [showAuthModal, setShowAuthModal] = useState(false);
-  const [showProModal, setShowProModal] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authTab, setAuthTab] = useState<"signin" | "signup">("signup");
   
-  // Dynamic Global State
-  const [globalPlayers, setGlobalPlayers] = useState(MOCK_PLAYERS);
-  const [opponentProfile, setOpponentProfile] = useState<any>(null);
-  
-  // Game Engine State
-  const [board, setBoard] = useState<Piece[][]>(INITIAL_BOARD);
-  const [turn, setTurn] = useState<'w' | 'b'>('w');
-  const [selected, setSelected] = useState<{ r: number; c: number } | null>(null);
-  const [captureChainPiece, setCaptureChainPiece] = useState<{ r: number; c: number } | null>(null);
+  // Данные игрока
+  const [playerNickname, setPlayerNickname] = useState("Гость");
+  const [playerEmail, setPlayerEmail] = useState("");
+  const [playerPassword, setPlayerPassword] = useState("");
+  const [playerCity, setPlayerCity] = useState("Almaty");
+  const [playerXP, setPlayerXP] = useState(0);
+  const [playerRating, setPlayerRating] = useState(1200);
+  const [winStreak, setWinStreak] = useState(0);
+  const [selectedAvatar, setSelectedAvatar] = useState("https://api.dicebear.com/7.x/avataaars/svg?seed=Felix");
+
+  // Фильтрация рейтинга и матчи
+  const [selectedCityFilter, setSelectedCityFilter] = useState("All");
+  const [selectedLeaderboardPlayer, setSelectedLeaderboardPlayer] = useState<LeaderboardPlayer | null>(null);
   const [isThinking, setIsThinking] = useState(false);
-  const [gameMode, setGameMode] = useState<'ai' | 'online' | 'local'>('ai');
-  const [difficulty, setDifficulty] = useState<'easy' | 'medium'>('medium');
-  const [gameOver, setGameOver] = useState<string | null>(null);
+  const [isMatchmaking, setIsMatchmaking] = useState(false);
+  const [matchedOpponent, setMatchedOpponent] = useState<LeaderboardPlayer | null>(null);
 
-  // Result & AI State
-  const [showResultModal, setShowResultModal] = useState(false);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [aiCoachFeedback, setAiCoachFeedback] = useState<string[]>([]);
-  const [eloChanges, setEloChanges] = useState({ player: 0, opponent: 0 });
+  // Фичи и модалки
+  const [isProModalOpen, setIsProModalOpen] = useState(false);
+  const [aiCoachReport, setAiCoachReport] = useState<string[] | null>(null);
+  const [moveHistory, setMoveHistory] = useState<string[]>([]);
 
-  // Initialization
+  const avatarOptions = [
+    "https://api.dicebear.com/7.x/avataaars/svg?seed=Felix",
+    "https://api.dicebear.com/7.x/avataaars/svg?seed=Aneka",
+    "https://api.dicebear.com/7.x/avataaars/svg?seed=James",
+    "https://api.dicebear.com/7.x/avataaars/svg?seed=Sophia",
+    "https://api.dicebear.com/7.x/avataaars/svg?seed=Max"
+  ];
+
+  // Динамическая таблица лидеров
+  const [leaderboardData, setLeaderboardData] = useState<LeaderboardPlayer[]>([
+    { rank: 1, name: "Арман К.", city: "Almaty", rating: 2410, winRate: "78%", level: 8, avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=James", streak: 12 },
+    { rank: 2, name: "Данияр С.", city: "Astana", rating: 2295, winRate: "71%", level: 6, avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Max", streak: 7 },
+    { rank: 3, name: "Алина М.", city: "Shymkent", rating: 2180, winRate: "69%", level: 5, avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Sophia", streak: 5 },
+    { rank: 4, name: "Тимур Б.", city: "Semey", rating: 2105, winRate: "64%", level: 4, avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Felix", streak: 4 },
+  ]);
+
+  const playerLevel = Math.floor(playerXP / 1000) + 1;
+  const currentLevelXP = playerXP % 1000;
+
+  // Синхронизация профиля в таблице
   useEffect(() => {
-    const saved = localStorage.getItem('mind-tactics-user-v4');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      setUserProfile(parsed);
-      setIsLoggedIn(true);
-    }
-  }, []);
-
-  const saveUser = (data: any) => {
-    localStorage.setItem('mind-tactics-user-v4', JSON.stringify(data));
-    setUserProfile(data);
-    setIsLoggedIn(true);
-    setShowAuthModal(false);
-  };
-
-  const logout = () => {
-    localStorage.removeItem('mind-tactics-user-v4');
-    setUserProfile(null);
-    setIsLoggedIn(false);
-  };
-
-  const updateLeaderboardStats = (playerEloChange: number, opponentId: string | undefined, opponentEloChange: number) => {
-    if (opponentId) {
-      setGlobalPlayers(prev => prev.map(p => {
-        if (p.id === opponentId) {
-          return { ...p, elo: Math.max(100, (p.elo || 1200) + opponentEloChange) };
-        }
-        return p;
-      }));
-    }
-  };
-
-  const runAICoach = async (winnerColor: string) => {
-    setIsAnalyzing(true);
-    try {
-      const boardStr = boardToString(board);
-      const result = await postMatchAICoachAnalysis({
-        boardState: boardStr,
-        playerColor: 'white'
-      });
-      setAiCoachFeedback(result.feedbackPoints);
-    } catch (error) {
-      setAiCoachFeedback([
-        "Strategic evaluation unavailable.",
-        "System focus: Maintain center control.",
-        "Tactical note: Watch for back-rank incursions."
-      ]);
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
-
-  const handleWin = useCallback(() => {
-    setGameOver('w');
-    setShowResultModal(true);
-    
-    const xpGain = 500;
-    const eloGain = 25;
-    const opponentLoss = -20;
-
-    setEloChanges({ player: eloGain, opponent: opponentLoss });
-
-    const updatedUser = { 
-      ...userProfile, 
-      xp: (userProfile?.xp || 0) + xpGain, 
-      elo: (userProfile?.elo || 1200) + eloGain,
-      streak: (userProfile?.streak || 0) + 1 
-    };
-    
-    saveUser(updatedUser);
-    updateLeaderboardStats(eloGain, opponentProfile?.id, opponentLoss);
-    runAICoach('w');
-  }, [userProfile, opponentProfile]);
-
-  const handleLoss = useCallback(() => {
-    setGameOver('b');
-    setShowResultModal(true);
-
-    const eloLoss = -20;
-    const opponentGain = 25;
-
-    setEloChanges({ player: eloLoss, opponent: opponentGain });
-
-    const updatedUser = { 
-      ...userProfile, 
-      elo: Math.max(100, (userProfile?.elo || 1200) + eloLoss),
-      streak: 0 
-    };
-    
-    saveUser(updatedUser);
-    updateLeaderboardStats(eloLoss, opponentProfile?.id, opponentGain);
-    runAICoach('b');
-  }, [userProfile, opponentProfile]);
-
-  // AI Game Logic
-  const handleAIMove = useCallback(async () => {
-    if (turn === 'b' && !gameOver && (gameMode === 'ai' || gameMode === 'online')) {
-      setIsThinking(true);
-      const delay = gameMode === 'online' ? 2000 : (difficulty === 'easy' ? 1000 : 1500);
-      await new Promise(r => setTimeout(r, delay));
-
-      let moves: Move[] = [];
-      if (captureChainPiece) {
-        moves = getValidMoves(board, captureChainPiece.r, captureChainPiece.c, true);
-      } else {
-        moves = getAllValidMoves(board, 'b');
-      }
-
-      if (moves.length === 0) {
-        if (!captureChainPiece) handleWin();
-        else { setCaptureChainPiece(null); setTurn('w'); }
-        setIsThinking(false);
-        return;
-      }
-
-      const move = moves.some(m => m.captures)
-        ? moves.find(m => m.captures)!
-        : moves[Math.floor(Math.random() * moves.length)];
+    if (isLoggedIn) {
+      const updatedList = [
+        {
+          rank: 0,
+          name: `${playerNickname} (Вы)`,
+          city: playerCity,
+          rating: playerRating,
+          winRate: "100%",
+          level: playerLevel,
+          avatar: selectedAvatar,
+          streak: winStreak,
+          isCurrentUser: true
+        },
+        { rank: 1, name: "Арман К.", city: "Almaty", rating: 2410, winRate: "78%", level: 8, avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=James", streak: 12 },
+        { rank: 2, name: "Данияр С.", city: "Astana", rating: 2295, winRate: "71%", level: 6, avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Max", streak: 7 },
+        { rank: 3, name: "Алина М.", city: "Shymkent", rating: 2180, winRate: "69%", level: 5, avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Sophia", streak: 5 },
+        { rank: 4, name: "Тимур Б.", city: "Semey", rating: 2105, winRate: "64%", level: 4, avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Felix", streak: 4 },
+      ].sort((a, b) => b.rating - a.rating);
       
-      const newBoard = makeMove(board, move);
-      setBoard(newBoard);
-      
-      if (move.captures) {
-        const further = getValidMoves(newBoard, move.to.r, move.to.c, true);
-        if (further.length > 0) {
-          setCaptureChainPiece({ r: move.to.r, c: move.to.c });
-          setIsThinking(false);
-          return;
+      const rankedList = updatedList.map((player, index) => ({ ...player, rank: index + 1 }));
+      setLeaderboardData(rankedList);
+    }
+  }, [isLoggedIn, playerNickname, playerCity, playerRating, playerLevel, selectedAvatar, winStreak]);
+
+  const initGame = (mode: "ai" | "local" | "online" = "ai", opponent: LeaderboardPlayer | null = null) => {
+    const newBoard: BoardState = Array(8).fill(null).map(() => Array(8).fill(null));
+    let idCounter = 0;
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        if ((r + c) % 2 === 1) {
+          if (r < 3) newBoard[r][c] = { color: "b", type: "pawn", id: `b-${idCounter++}` };
+          else if (r > 4) newBoard[r][c] = { color: "w", type: "pawn", id: `w-${idCounter++}` };
         }
       }
-
-      setCaptureChainPiece(null);
-      setTurn('w');
-      setIsThinking(false);
-      if (getAllValidMoves(newBoard, 'w').length === 0) handleLoss();
     }
-  }, [turn, board, gameOver, gameMode, difficulty, captureChainPiece, handleWin, handleLoss]);
-
-  useEffect(() => {
-    if (turn === 'b' && !gameOver) handleAIMove();
-  }, [turn, gameOver, handleAIMove]);
-
-  const startMatchmaking = () => {
-    if (!isLoggedIn) { setShowAuthModal(true); return; }
-    setCurrentScreen('matchmaking');
-    const available = globalPlayers.filter(p => p.id !== 'active-user');
-    const randomOpponent = available[Math.floor(Math.random() * available.length)];
-    setOpponentProfile(randomOpponent);
-
-    setTimeout(() => {
-      setCurrentScreen('arena');
-      setGameMode('online');
-      resetGameState();
-    }, 3500);
+    setBoard(newBoard);
+    setTurn("w");
+    setSelectedPiece(null);
+    setAvailableMoves([]);
+    setWinner(null);
+    setAiCoachReport(null);
+    setMoveHistory([]);
+    setGameMode(mode);
+    setIsThinking(false);
+    if (opponent) setMatchedOpponent(opponent);
   };
 
-  const handleModeSelect = (mode: 'ai' | 'local' | 'online') => {
-    if (!isLoggedIn) { setShowAuthModal(true); return; }
-    
-    if (mode === 'online') {
-      startMatchmaking();
-    } else {
-      setGameMode(mode);
-      setOpponentProfile(mode === 'ai' ? { name: 'Neural Core v4.0', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=AI', elo: 2400, level: 15 } : null);
-      setCurrentScreen('arena');
-      resetGameState();
-    }
-  };
-
-  const resetGameState = () => {
-    setBoard(INITIAL_BOARD);
-    setTurn('w');
-    setSelected(null);
-    setCaptureChainPiece(null);
-    setGameOver(null);
-    setShowResultModal(false);
-    setAiCoachFeedback([]);
-  };
-
-  const handleSquareClick = (r: number, c: number) => {
-    if ((turn === 'b' && gameMode !== 'local') || isThinking || gameOver) return;
-
-    if (captureChainPiece) {
-      if (r === captureChainPiece.r && c === captureChainPiece.c) { setSelected({ r, c }); return; }
-      const moves = getValidMoves(board, captureChainPiece.r, captureChainPiece.c, true);
-      const move = moves.find(m => m.to.r === r && m.to.c === c);
-      if (move) {
-        const newBoard = makeMove(board, move);
-        setBoard(newBoard);
-        const further = getValidMoves(newBoard, move.to.r, move.to.c, true);
-        if (further.length > 0) {
-          setCaptureChainPiece({ r: move.to.r, c: move.to.c });
-          setSelected({ r: move.to.r, c: move.to.c });
-        } else {
-          setCaptureChainPiece(null);
-          setSelected(null);
-          setTurn(turn === 'w' ? 'b' : 'w');
-        }
-      }
+  const handleModeSelection = (mode: "ai" | "local" | "online") => {
+    if (!isLoggedIn) {
+      setAuthTab("signup");
+      setIsAuthModalOpen(true);
       return;
     }
 
-    const pieceColor = getPieceColor(board[r][c]);
-    if (pieceColor === turn) {
-      setSelected({ r, c });
-    } else if (selected) {
-      const moves = getAllValidMoves(board, turn);
-      const move = moves.find(m => m.from.r === selected.r && m.from.c === selected.c && m.to.r === r && m.to.c === c);
-      if (move) {
-        const newBoard = makeMove(board, move);
-        setBoard(newBoard);
-        if (move.captures) {
-          const further = getValidMoves(newBoard, move.to.r, move.to.c, true);
-          if (further.length > 0) {
-            setCaptureChainPiece({ r: move.to.r, c: move.to.c });
-            setSelected({ r: move.to.r, c: move.to.c });
-            return;
+    if (mode === "online") {
+      setIsMatchmaking(true);
+      setTimeout(() => {
+        const filteredPool = leaderboardData.filter(p => !p.isCurrentUser);
+        const randomOpponent = filteredPool[Math.floor(Math.random() * filteredPool.length)] || leaderboardData[1];
+        setMatchedOpponent(randomOpponent);
+        setIsMatchmaking(false);
+        initGame("online", randomOpponent);
+      }, 2500);
+    } else {
+      initGame(mode);
+    }
+  };
+
+  const handleAuthSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (authTab === "signup" && !playerNickname) return;
+    setIsLoggedIn(true);
+    setIsAuthModalOpen(false);
+  };
+
+  // ПРАВИЛА РУССКИХ ШАШЕК: Дальнобойная дамка и серийные взятия
+  const getAllCapturesForPlayer = (currentBoard: BoardState, player: PlayerColor): Move[] => {
+    const captures: Move[] = [];
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const piece = currentBoard[r][c];
+        if (piece && piece.color === player) {
+          captures.push(...getPieceMoves(currentBoard, r, c).filter(m => m.captures.length > 0));
+        }
+      }
+    }
+    return captures;
+  };
+
+  const getPieceMoves = (currentBoard: BoardState, r: number, c: number): Move[] => {
+    const piece = currentBoard[r][c];
+    if (!piece) return [];
+    const moves: Move[] = [];
+    const captureDirections = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+
+    if (piece.type === "pawn") {
+      const directions = piece.color === "w" ? [[-1, 1], [-1, -1]] : [[1, 1], [1, -1]];
+      directions.forEach(([dr, dc]) => {
+        const nr = r + dr, nc = c + dc;
+        if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8 && !currentBoard[nr][nc]) {
+          moves.push({ from: [r, c], to: [nr, nc], captures: [], isKingTransition: nr === (piece.color === "w" ? 0 : 7) });
+        }
+      });
+      captureDirections.forEach(([dr, dc]) => {
+        const tr = r + dr, tc = c + dc, lr = r + dr * 2, lc = c + dc * 2;
+        if (lr >= 0 && lr < 8 && lc >= 0 && lc < 8) {
+          const target = currentBoard[tr][tc], landing = currentBoard[lr][lc];
+          if (target && target.color !== piece.color && !landing) {
+            moves.push({ from: [r, c], to: [lr, lc], captures: [[tr, tc]], isKingTransition: lr === (piece.color === "w" ? 0 : 7) });
           }
         }
-        setSelected(null);
-        setCaptureChainPiece(null);
-        setTurn(turn === 'w' ? 'b' : 'w');
-        const nextMoves = getAllValidMoves(newBoard, turn === 'w' ? 'b' : 'w');
-        if (nextMoves.length === 0) turn === 'w' ? handleWin() : handleLoss();
-      } else setSelected(null);
+      });
+    } else {
+      // Дальнобойная дамка (Полет по диагонали)
+      captureDirections.forEach(([dr, dc]) => {
+        let nr = r + dr, nc = c + dc;
+        let targetPiece: [number, number] | null = null;
+        while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+          const cell = currentBoard[nr][nc];
+          if (!cell) {
+            if (!targetPiece) {
+              moves.push({ from: [r, c], to: [nr, nc], captures: [], isKingTransition: false });
+            } else {
+              moves.push({ from: [r, c], to: [nr, nc], captures: [targetPiece], isKingTransition: false });
+            }
+          } else if (cell.color === piece.color) {
+            break;
+          } else {
+            if (targetPiece) break;
+            targetPiece = [nr, nc];
+          }
+          nr += dr; nc += dc;
+        }
+      });
+    }
+    return moves;
+  };
+
+  const handleCellClick = (r: number, c: number) => {
+    if (winner || isThinking || board.length === 0) return;
+    if (gameMode === "ai" && turn === "b") return;
+
+    const piece = board[r][c];
+    if (piece && piece.color === turn) {
+      const allCaptures = getAllCapturesForPlayer(board, turn);
+      const pMoves = getPieceMoves(board, r, c);
+      setAvailableMoves(allCaptures.length > 0 ? pMoves.filter(m => m.captures.length > 0) : pMoves);
+      setSelectedPiece([r, c]);
+      return;
+    }
+
+    const selectedMove = availableMoves.find(m => m.to[0] === r && m.to[1] === c);
+    if (selectedPiece && selectedMove) {
+      executeMove(selectedMove);
+    } else {
+      setSelectedPiece(null);
+      setAvailableMoves([]);
     }
   };
 
-  const renderScreen = () => {
-    switch (currentScreen) {
-      case 'lobby':
-        return (
-          <LobbyScreen 
-            user={userProfile} 
-            isLoggedIn={isLoggedIn}
-            onLogout={logout}
-            onSelectMode={handleModeSelect}
-            onLoginClick={() => setShowAuthModal(true)}
-            difficulty={difficulty}
-            setDifficulty={setDifficulty}
-            players={globalPlayers}
-            onShowPro={() => setShowProModal(true)}
-          />
-        );
-      case 'matchmaking':
-        return <MatchmakingScreen opponent={opponentProfile} />;
-      case 'arena':
-        return (
-          <ArenaScreen 
-            user={userProfile}
-            opponent={opponentProfile}
-            board={board}
-            turn={turn}
-            isThinking={isThinking}
-            gameMode={gameMode}
-            onSquareClick={handleSquareClick}
-            selected={selected}
-            captureChainPiece={captureChainPiece}
-            onForfeit={() => setCurrentScreen('lobby')}
-          />
-        );
+  const executeMove = (move: Move) => {
+    const newBoard = board.map(row => [...row]);
+    const [fr, fc] = move.from;
+    const [tr, tc] = move.to;
+    let piece = newBoard[fr][fc]!;
+
+    if (move.isKingTransition || piece.type === "king") piece = { ...piece, type: "king" };
+    newBoard[tr][tc] = piece;
+    newBoard[fr][fc] = null;
+    move.captures.forEach(([cr, cc]) => { newBoard[cr][cc] = null; });
+
+    const notation = `${piece.color === "w" ? "Белые" : "Черные"}: (${fr},${fc}) ➔ (${tr},${tc})${move.captures.length ? " ⚔️" : ""}`;
+    setMoveHistory(prev => [notation, ...prev.slice(0, 9)]);
+
+    // Проверка на комбо-удар (серийные взятия)
+    if (move.captures.length > 0) {
+      const nextCaptures = getPieceMoves(newBoard, tr, tc).filter(m => m.captures.length > 0);
+      if (nextCaptures.length > 0) {
+        setBoard(newBoard);
+        setSelectedPiece([tr, tc]);
+        setAvailableMoves(nextCaptures);
+        return; // Ход НЕ переходит, игрок бьет дальше!
+      }
+    }
+
+    setBoard(newBoard);
+    setSelectedPiece(null);
+    setAvailableMoves([]);
+
+    const nextPlayer = turn === "w" ? "b" : "w";
+    let hasMoves = false;
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        if (newBoard[r][c]?.color === nextPlayer && getPieceMoves(newBoard, r, c).length > 0) {
+          hasMoves = true;
+          break;
+        }
+      }
+    }
+
+    if (!hasMoves) {
+      handleMatchEnd(turn);
+    } else {
+      setTurn(nextPlayer);
     }
   };
 
-  return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col font-body antialiased selection:bg-primary selection:text-primary-foreground">
-      <Toaster />
+  // Подсчет рейтингов при завершении матча
+  const handleMatchEnd = (matchWinner: PlayerColor) => {
+    setWinner(matchWinner);
+    if (matchWinner === "w") {
+      setPlayerXP(prev => prev + 500);
+      setPlayerRating(prev => prev + 25);
+      setWinStreak(prev => prev + 1);
       
-      {renderScreen()}
+      if (gameMode === "online" && matchedOpponent) {
+        setLeaderboardData(prev => prev.map(p => 
+          p.name === matchedOpponent.name ? { ...p, rating: Math.max(1000, p.rating - 20) } : p
+        ));
+      }
+    } else {
+      setPlayerRating(prev => Math.max(1000, prev - 20));
+      setWinStreak(0);
+      
+      if (gameMode === "online" && matchedOpponent) {
+        setLeaderboardData(prev => prev.map(p => 
+          p.name === matchedOpponent.name ? { ...p, rating: p.rating + 25 } : p
+        ));
+      }
+    }
 
-      {/* Auth Modal */}
-      <Dialog open={showAuthModal} onOpenChange={setShowAuthModal}>
-        <DialogContent className="p-0 border-none bg-transparent max-w-md shadow-none">
-          <DialogHeader className="sr-only">
-            <DialogTitle>Account Authentication</DialogTitle>
-            <DialogDescription>Initialize your identity or reconnect to the grid.</DialogDescription>
-          </DialogHeader>
-           <AuthForm onFinish={saveUser} />
-        </DialogContent>
-      </Dialog>
+    // ИИ-Советник генерирует разбор полетов
+    if (matchWinner === "w") {
+      setAiCoachReport([
+        "🧠 Анализ MindTactics Coach: Мастерский контроль центра поля! Твой прорыв по флангу лишил соперника пространства.",
+        "💡 Совет: Твой стрик растет! Продолжай удерживать дальнобойных дамок на крайних диагоналях для контроля углов."
+      ]);
+    } else {
+      setAiCoachReport([
+        "⚠️ Анализ MindTactics Coach: Критическая ошибка! Ты оставил открытой тыловую линию, что позволило сопернику прорваться.",
+        "💡 Совет: Никогда не уводи шашки с последней горизонтали слишком рано, держи их как резерв защиты."
+      ]);
+    }
+  };
 
-      {/* Pro Modal */}
-      <Dialog open={showProModal} onOpenChange={setShowProModal}>
-        <DialogContent className="glass border-white/10 rounded-[40px] p-8 max-w-lg amber-glow">
-          <DialogHeader>
-            <DialogTitle className="text-3xl font-headline font-black italic uppercase italic text-primary flex items-center gap-3">
-              <Zap className="w-8 h-8" /> UNLOCK PRO GRID
-            </DialogTitle>
-            <DialogDescription className="text-muted-foreground font-bold uppercase text-[10px] tracking-widest pt-2">
-              The ultimate strategic advantage
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-8 space-y-6">
-            <div className="text-5xl font-black italic tracking-tighter text-center">
-              $5.99 <span className="text-xl text-muted-foreground">/ month</span>
-            </div>
-            <ul className="space-y-4">
-              {[
-                "Deep AI Tactical Analytics post-match",
-                "Neon & Cyberpunk Board Skins",
-                "Exclusive High-Tier Global Tournaments",
-                "Verified Pro Badge in Global Grid",
-                "Ad-Free Command Center Experience"
-              ].map((f, i) => (
-                <li key={i} className="flex items-center gap-3 text-sm font-bold">
-                  <CheckCircle2 className="w-5 h-5 text-primary" /> {f}
-                </li>
-              ))}
-            </ul>
-            <Button className="w-full h-14 bg-primary text-background font-black uppercase italic rounded-2xl text-lg shadow-[0_0_20px_hsl(var(--primary)/.3)]">
-              INITIALIZE PRO SUBSCRIPTION
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+  // Логика соперника (ИИ / Игрок)
+  useEffect(() => {
+    if (turn === "b" && !winner && board.length > 0) {
+      setIsThinking(true);
+      const delay = gameMode === "online" ? 2000 : 700;
 
-      {/* Result Modal */}
-      <Dialog open={showResultModal} onOpenChange={setShowResultModal}>
-        <DialogContent className="glass border-white/10 sm:max-w-xl text-foreground rounded-[40px] p-0 overflow-hidden amber-glow">
-          <DialogHeader className="sr-only">
-            <DialogTitle>{gameOver === 'w' ? 'Tactical Victory' : 'Tactical Defeat'}</DialogTitle>
-            <DialogDescription>Performance summary and AI coaching analytics.</DialogDescription>
-          </DialogHeader>
-          <div className={`p-8 text-center space-y-8 ${gameOver === 'w' ? 'bg-emerald-500/10' : 'bg-destructive/10'}`}>
-            <div className="space-y-2">
-              <div className={`w-20 h-20 rounded-full mx-auto flex items-center justify-center glass amber-glow ${gameOver === 'w' ? 'text-primary' : 'text-destructive'}`}>
-                {gameOver === 'w' ? <Trophy className="w-10 h-10" /> : <XCircle className="w-10 h-10" />}
-              </div>
-              <h2 className={`text-5xl font-headline font-black italic uppercase tracking-tighter ${gameOver === 'w' ? 'text-primary' : 'text-destructive'}`}>
-                {gameOver === 'w' ? '🏆 ПОБЕДА!' : '💀 ПОРАЖЕНИЕ'}
-              </h2>
-            </div>
+      const timer = setTimeout(() => {
+        const allCaptures = getAllCapturesForPlayer(board, "b");
+        let aiMoves = allCaptures.length > 0 ? allCaptures : [];
 
-            <div className="grid grid-cols-2 gap-6">
-              <ResultCard profile={userProfile} eloChange={eloChanges.player} xpProgress={((userProfile?.xp || 0) % 1000) / 10} />
-              <ResultCard profile={opponentProfile} eloChange={eloChanges.opponent} isOpponent />
-            </div>
+        if (aiMoves.length === 0) {
+          for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+              if (board[r][c]?.color === "b") {
+                aiMoves.push(...getPieceMoves(board, r, c));
+              }
+            }
+          }
+        }
 
-            <div className="glass p-6 rounded-3xl bg-black/40 border-white/5 text-left space-y-4">
-               <h3 className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                  <BrainCircuit className="w-4 h-4" /> AI COACH ANALYSIS
-               </h3>
-               {isAnalyzing ? (
-                 <div className="flex items-center gap-3 py-4">
-                    <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                    <p className="text-xs font-bold text-muted-foreground uppercase animate-pulse">Scanning tactical nodes...</p>
-                 </div>
-               ) : (
-                 <ul className="space-y-3">
-                   {aiCoachFeedback.map((point, idx) => (
-                     <li key={idx} className="flex gap-3 text-xs font-bold leading-tight">
-                        <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
-                        <span className="text-muted-foreground">{point}</span>
-                     </li>
-                   ))}
-                 </ul>
-               )}
-            </div>
+        if (aiMoves.length === 0) {
+          handleMatchEnd("w");
+          setIsThinking(false);
+          return;
+        }
 
-            <Button size="lg" onClick={() => setCurrentScreen('lobby')} className="w-full rounded-2xl h-14 bg-primary text-background font-black uppercase italic">
-              RETURN TO COMMAND CENTER
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
+        const bestMove = aiMoves.find(m => m.captures.length > 0) || aiMoves.find(m => m.isKingTransition) || aiMoves[Math.floor(Math.random() * aiMoves.length)];
+        setIsThinking(false);
+        executeMove(bestMove);
+      }, delay);
 
-// Sub-Screens & Components
+      return () => clearTimeout(timer);
+    }
+  }, [turn, gameMode, board, winner]);
 
-function LobbyScreen({ user, isLoggedIn, onLogout, onSelectMode, onLoginClick, difficulty, setDifficulty, players, onShowPro }: any) {
   return (
-    <div className="min-h-screen flex flex-col p-4 md:p-8 animate-in fade-in duration-500">
-      <header className="w-full max-w-7xl mx-auto flex items-center justify-between mb-12">
-        <div className="flex items-center gap-4">
-          <div className="relative">
-             <div className="absolute inset-0 bg-primary/20 blur-xl rounded-full" />
-             <div className="relative glass w-12 h-12 rounded-2xl flex items-center justify-center border-primary/20">
-                <Layers className="w-6 h-6 text-primary" />
-             </div>
+    <div className="min-h-screen bg-slate-950 text-slate-50 font-sans selection:bg-amber-500/30 flex flex-col justify-between">
+      
+      {/* ШАПКА С БРЕНДИНГОМ И КРЕАТИВНЫМ ЛОГОТИПОМ */}
+      <header className="border-b border-slate-800 px-6 py-4 flex justify-between items-center bg-slate-950/80 backdrop-blur-md sticky top-0 z-40">
+        <div className="flex items-center space-x-3">
+          <div className="bg-gradient-to-tr from-amber-500 to-orange-600 p-2.5 rounded-xl shadow-lg shadow-orange-500/20 flex items-center justify-center relative group">
+            <Layers className="h-6 w-6 text-white absolute transform -translate-y-0.5 group-hover:scale-110 transition" />
+            <div className="h-5 w-5 rounded-full border-2 border-white/40 mt-1 opacity-80" />
           </div>
           <div>
-            <h1 className="text-3xl font-headline font-black italic uppercase tracking-tighter bg-gradient-to-r from-primary to-orange-400 bg-clip-text text-transparent leading-none">
-              MIND TACTICS
+            <h1 className="font-black text-xl tracking-tight bg-gradient-to-r from-amber-400 to-orange-500 bg-clip-text text-transparent">
+              Mind Tactics: Elite Checkers
             </h1>
-            <p className="text-[10px] font-bold uppercase tracking-[0.4em] text-muted-foreground">ELITE CHECKERS SYSTEM</p>
+            <p className="text-xxs text-amber-400 font-medium tracking-wider uppercase">3-Min Blitz & Strategy Trainer</p>
           </div>
         </div>
-        
-        {isLoggedIn ? (
-          <Button variant="ghost" onClick={onLogout} className="text-[10px] font-black uppercase tracking-[0.2em] border border-white/5 hover:bg-white/5">
-            <LogOut className="w-4 h-4 mr-2" /> DISCONNECT
-          </Button>
-        ) : (
-          <Button onClick={onLoginClick} className="bg-primary text-background font-black uppercase italic rounded-xl px-8">
-            SIGN IN
-          </Button>
-        )}
+
+        <div className="flex items-center space-x-4">
+          {isLoggedIn ? (
+            <>
+              <div className="flex items-center space-x-2 bg-slate-900 px-3 py-1.5 rounded-xl border border-slate-800 text-xs">
+                <Flame className="h-4 w-4 text-orange-500 fill-orange-500" />
+                <span>Стрик: <span className="font-bold text-orange-400">{winStreak} 🔥</span></span>
+              </div>
+              <div className="flex items-center space-x-2 bg-slate-900/80 border border-slate-800 p-1 rounded-xl">
+                <img src={selectedAvatar} alt="Avatar" className="w-8 h-8 rounded-lg bg-slate-800" />
+                <div className="text-left pr-2 hidden sm:block">
+                  <p className="text-xs font-bold leading-none">{playerNickname}</p>
+                  <p className="text-xxs text-slate-400 font-mono mt-0.5">{playerRating} Elo</p>
+                </div>
+              </div>
+              <button onClick={() => setIsLoggedIn(false)} className="text-slate-400 hover:text-red-400 p-1 transition">
+                <LogOut className="h-4 w-4" />
+              </button>
+            </>
+          ) : (
+            <button onClick={() => { setAuthTab("signup"); setIsAuthModalOpen(true); }} className="bg-slate-900 hover:bg-slate-800 border border-slate-800 px-4 py-2 rounded-xl text-xs font-bold transition">
+              Войти в аккаунт
+            </button>
+          )}
+
+          <button onClick={() => setIsProModalOpen(true)} className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-bold text-xs px-4 py-2 rounded-xl shadow-lg shadow-orange-500/10 transition">
+            Go Pro
+          </button>
+        </div>
       </header>
 
-      <main className="w-full max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-start mb-12">
-        <div className="lg:col-span-4 space-y-6">
-          <div className="glass p-8 rounded-[40px] amber-glow border-white/5 flex flex-col items-center text-center space-y-6 bg-[radial-gradient(circle_at_top_right,hsl(var(--primary)/.05),transparent)]">
-            {isLoggedIn ? (
-              <>
-                <div className="relative">
-                  <img src={user.avatar} className="w-32 h-32 rounded-full border-4 border-primary/20 shadow-2xl" alt="" />
-                  <div className="absolute -bottom-2 -right-2 bg-primary text-background px-4 py-1.5 rounded-full text-xs font-black italic">
-                    LVL {Math.floor((user.xp || 0) / 1000) + 1}
+      {/* РАБОЧАЯ ОБЛАСТЬ (ЭКРАНЫ ЛОББИ ИЛИ АРЕНЫ) */}
+      <main className="max-w-7xl mx-auto p-4 lg:p-8 grid grid-cols-1 lg:grid-cols-3 gap-8 w-full flex-grow">
+        
+        {board.length === 0 ? (
+          /* ================= ЛОББИ ЭКРАН (ГЛАВНЫЙ ХАБ) ================= */
+          <>
+            {/* Слева: Карточка профиля */}
+            <div className="space-y-6">
+              <div className="bg-slate-900/60 border border-slate-800 p-5 rounded-2xl space-y-4 backdrop-blur-sm relative overflow-hidden">
+                <h2 className="font-bold text-xs text-slate-400 uppercase tracking-wider">Ваш Прогресс</h2>
+                <div className="flex justify-between items-center">
+                  <span className="text-2xl font-black text-amber-400">Уровень {playerLevel}</span>
+                  <span className="text-xs text-slate-400">{currentLevelXP} / 1000 XP</span>
+                </div>
+                <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                  <div className="bg-gradient-to-r from-amber-500 to-orange-500 h-full" style={{ width: `${currentLevelXP / 10}%` }} />
+                </div>
+                {isLoggedIn && (
+                  <div className="pt-2">
+                    <span className="text-xs text-slate-400 block mb-2">Сменить аватарку:</span>
+                    <div className="flex space-x-2">
+                      {avatarOptions.map((av, idx) => (
+                        <img 
+                          key={idx} src={av} onClick={() => setSelectedAvatar(av)}
+                          className={`w-9 h-9 rounded-xl cursor-pointer p-0.5 bg-slate-950 border-2 transition ${selectedAvatar === av ? "border-amber-500 scale-105" : "border-transparent opacity-60"}`} 
+                          alt="avatar-opt"
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {!isLoggedIn && (
+                  <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-xxs flex items-center justify-center text-center p-4">
+                    <p className="text-xs text-amber-400/90 font-bold bg-slate-900/90 border border-slate-800 px-3 py-2 rounded-xl">Авторизуйтесь для сохранения прогресса</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Центр: Выбор режимов */}
+            <div className="space-y-4 flex flex-col justify-center">
+              <div className="text-center space-y-2 mb-4">
+                <h2 className="text-2xl font-black tracking-tight text-white">Выберите режим сражения</h2>
+                <p className="text-sm text-slate-400">Гостевой просмотр активен. Зайдите в аккаунт, чтобы начать матч.</p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3">
+                <div onClick={() => handleModeSelection("ai")} className="bg-slate-900/60 hover:bg-slate-900 border border-slate-800 p-5 rounded-2xl cursor-pointer transition transform hover:-translate-y-1 group relative">
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center space-x-4">
+                      <div className="p-3 bg-amber-500/10 text-amber-400 rounded-xl group-hover:bg-amber-500 group-hover:text-black transition">
+                        <BrainCircuit className="h-6 w-6" />
+                      </div>
+                      <div className="text-left">
+                        <h3 className="font-bold text-sm text-white">Одиночная vs ИИ-Бот</h3>
+                        <p className="text-xs text-slate-400">Тренировка тактики против адаптивного ИИ</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <div className="space-y-1">
-                  <h2 className="text-4xl font-headline font-black uppercase italic tracking-tighter">{user.name}</h2>
-                  <p className="text-[10px] text-muted-foreground uppercase font-black tracking-[0.3em] flex items-center justify-center gap-2">
-                     <MapPin className="w-3 h-3 text-primary" /> {user.city}, KZ
-                  </p>
-                  <div className="flex items-center justify-center gap-3 pt-4">
-                    <Badge variant="secondary" className="bg-secondary/20 text-secondary font-black h-7 px-3 text-[10px]">
-                      🔥 {user.streak || 0} STREAK
-                    </Badge>
-                    <Badge variant="outline" className="text-primary border-primary/50 font-black h-7 px-3 text-[10px]">
-                      🏆 {user.elo || 1200} ELO
-                    </Badge>
+
+                <div onClick={() => handleModeSelection("local")} className="bg-slate-900/60 hover:bg-slate-900 border border-slate-800 p-5 rounded-2xl cursor-pointer transition transform hover:-translate-y-1 group">
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center space-x-4">
+                      <div className="p-3 bg-blue-500/10 text-blue-400 rounded-xl group-hover:bg-blue-500 group-hover:text-white transition">
+                        <Users className="h-6 w-6" />
+                      </div>
+                      <div className="text-left">
+                        <h3 className="font-bold text-sm text-white">Вдвоем (Один экран)</h3>
+                        <p className="text-xs text-slate-400">Локальная битва с другом на одном устройстве</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </>
-            ) : (
-              <div className="py-12 flex flex-col items-center gap-6">
-                 <div className="w-20 h-20 rounded-full glass flex items-center justify-center text-muted-foreground/30">
-                    <User className="w-10 h-10" />
-                 </div>
-                 <h2 className="text-2xl font-black uppercase italic italic tracking-tighter text-muted-foreground">GUEST TERMINAL</h2>
-                 <Button onClick={onLoginClick} className="w-full h-12 bg-white/5 hover:bg-white/10 text-primary border border-primary/20 font-black uppercase italic">
-                    INITIALIZE IDENTITY
-                 </Button>
+
+                <div onClick={() => handleModeSelection("online")} className="bg-slate-900/60 hover:bg-slate-900 border border-slate-800 p-5 rounded-2xl cursor-pointer transition transform hover:-translate-y-1 group">
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center space-x-4">
+                      <div className="p-3 bg-purple-500/10 text-purple-400 rounded-xl group-hover:bg-purple-500 group-hover:text-white transition">
+                        <Zap className="h-6 w-6" />
+                      </div>
+                      <div className="text-left">
+                        <h3 className="font-bold text-sm text-white">Онлайн Блиц-Дуэли</h3>
+                        <p className="text-xs text-slate-400">Быстрый рейтинговый матч 3-Min Blitz</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Справа: Лидерборд с фильтром городов */}
+            <div className="space-y-6">
+              <div className="bg-slate-900/60 border border-slate-800 p-5 rounded-2xl space-y-3 backdrop-blur-sm">
+                <div className="flex justify-between items-center">
+                  <h2 className="font-bold text-xs text-slate-400 uppercase tracking-wider">Рейтинг по Городам</h2>
+                  <select 
+                    value={selectedCityFilter} onChange={(e) => setSelectedCityFilter(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 text-xxs p-1 rounded-lg text-amber-400 font-bold focus:outline-none"
+                  >
+                    <option value="All">Все города</option>
+                    <option value="Almaty">Алматы</option>
+                    <option value="Astana">Астана</option>
+                    <option value="Shymkent">Шымкент</option>
+                    <option value="Semey">Семей</option>
+                  </select>
+                </div>
+
+                <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
+                  {leaderboardData
+                    .filter(p => selectedCityFilter === "All" || p.city === selectedCityFilter)
+                    .map((p) => (
+                      <div 
+                        key={p.rank} onClick={() => setSelectedLeaderboardPlayer(p)}
+                        className={`flex justify-between items-center text-xs p-2 rounded-xl transition transform hover:-translate-y-0.5 border ${p.isCurrentUser ? "bg-amber-500/10 border-amber-500/60" : "bg-slate-950/60 border-slate-800 hover:border-amber-500/30 cursor-pointer"}`}
+                      >
+                        <div className="flex items-center space-x-2">
+                          <img src={p.avatar} alt="p-av" className="w-6 h-6 rounded bg-slate-800" />
+                          <div>
+                            <p className={`font-bold ${p.isCurrentUser ? "text-amber-400" : "text-slate-200"}`}>{p.name}</p>
+                            <p className="text-xxs text-slate-500 flex items-center"><MapPin className="h-2 w-2 mr-0.5" />{p.city}</p>
+                          </div>
+                        </div>
+                        <span className="font-mono text-xxs text-amber-400 font-bold">{p.rating} Elo</span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            </div>
+          </>
+        ) : (
+          /* ================= ЭКРАН АРЕНЫ (ДОСКА) ================= */
+          <div className="col-span-1 lg:col-span-3 grid grid-cols-1 lg:grid-cols-3 gap-8 items-center w-full">
+            
+            {/* Панель истории слева */}
+            <div className="bg-slate-900/60 border border-slate-800 p-5 rounded-2xl h-fit space-y-4">
+              <div className="flex justify-between items-center">
+                <h3 className="font-bold text-xs text-slate-400 uppercase tracking-wider">Ходы партии</h3>
+                <button onClick={() => setBoard([])} className="text-xxs text-red-400 hover:underline font-bold">Сдаться / Выйти</button>
+              </div>
+              <div className="bg-slate-950 p-3 rounded-xl h-48 overflow-y-auto font-mono text-xxs text-slate-400 space-y-1 text-left">
+                {moveHistory.length === 0 && <p className="text-slate-600 italic">История пуста...</p>}
+                {moveHistory.map((h, i) => <p key={i} className="border-b border-slate-900 pb-0.5">{h}</p>)}
+              </div>
+            </div>
+
+            {/* Центр: Сама игровая доска */}
+            <div className="flex flex-col items-center space-y-4">
+              <div className="h-6 w-full flex items-center justify-center">
+                {isThinking && (
+                  <div className="flex items-center space-x-2 text-xs font-bold px-3 py-1 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-full animate-pulse">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-400" />
+                    <span>{gameMode === "online" ? `⚡ ${matchedOpponent?.name || "Оппонент"} думает...` : "🤖 ИИ просчитывает комбинацию..."}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-between w-full max-w-[420px] text-xs text-slate-400 font-bold px-1">
+                <span>Вы (Белые)</span>
+                <span className="text-amber-400 bg-slate-900 px-3 py-0.5 rounded-full border border-slate-800 uppercase tracking-wide">
+                  ХОД: {turn === "w" ? "ВАШ" : "БОТА"}
+                </span>
+                <span>{gameMode === "ai" ? "ИИ-Бот" : gameMode === "online" ? matchedOpponent?.name : "Игрок 2"}</span>
+              </div>
+
+              <div className={`aspect-square w-full max-w-[420px] bg-slate-900 p-2 rounded-2xl border border-slate-800 grid grid-cols-8 gap-0.5 shadow-2xl relative ${isThinking ? "opacity-90 cursor-not-allowed" : ""}`}>
+                {board.map((row, r) =>
+                  row.map((piece, c) => {
+                    const isDark = (r + c) % 2 === 1;
+                    const isSelected = selectedPiece?.[0] === r && selectedPiece?.[1] === c;
+                    const isAvailable = availableMoves.some(m => m.to[0] === r && m.to[1] === c);
+                    return (
+                      <div
+                        key={`${r}-${c}`}
+                        onClick={() => handleCellClick(r, c)}
+                        className={`relative flex items-center justify-center cursor-pointer aspect-square rounded ${isDark ? "bg-slate-950 hover:bg-slate-900/60" : "bg-slate-900/10"} ${isSelected ? "ring-2 ring-amber-500" : ""}`}
+                      >
+                        {isAvailable && <div className="absolute h-3 w-3 rounded-full bg-emerald-500 opacity-90 animate-pulse" />}
+                        {piece && (
+                          <div className={`w-4/5 h-4/5 rounded-full flex items-center justify-center border shadow-xl transition-transform ${piece.color === "w" ? "bg-gradient-to-b from-slate-100 to-slate-300 border-slate-400" : "bg-gradient-to-b from-slate-800 to-slate-950 border-slate-900"}`}>
+                            {piece.type === "king" && <Trophy className="h-4 w-4 text-amber-500" />}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Правая часть: Советник тренера */}
+            <div className="bg-slate-900/60 border border-slate-800 p-5 rounded-2xl h-fit space-y-3">
+              <h3 className="font-bold text-sm text-purple-400 uppercase tracking-wider">Разбор AI Coach</h3>
+              <p className="text-xs text-slate-400 leading-relaxed">Доиграйте партию до конца, чтобы получить подробные разборы тактических ходов от искусственного интеллекта.</p>
+            </div>
+
+          </div>
+        )}
+      </main>
+
+      {/* ================= ВСЕ МОДАЛЬНЫЕ ОКНА И ДИАЛОГИ ================= */}
+
+      {/* Модалка авторизации */}
+      {isAuthModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 max-w-sm w-full p-6 rounded-2xl space-y-4 text-left shadow-2xl">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+              <div className="flex space-x-4 text-sm font-bold">
+                <button onClick={() => setAuthTab("signup")} className={`pb-1 border-b-2 ${authTab === "signup" ? "border-amber-500 text-amber-400" : "border-transparent text-slate-400"}`}>Регистрация</button>
+                <button onClick={() => setAuthTab("signin")} className={`pb-1 border-b-2 ${authTab === "signin" ? "border-amber-500 text-amber-400" : "border-transparent text-slate-400"}`}>Вход</button>
+              </div>
+              <button onClick={() => setIsAuthModalOpen(false)} className="text-slate-500 hover:text-white text-xs font-bold">✕</button>
+            </div>
+
+            <form onSubmit={handleAuthSubmit} className="space-y-3">
+              {authTab === "signup" && (
+                <div>
+                  <label className="text-xxs uppercase tracking-wider text-slate-400 font-bold block mb-1">Никнейм</label>
+                  <input type="text" required value={playerNickname} onChange={(e) => setPlayerNickname(e.target.value)} placeholder="IvanDraughts" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs focus:outline-none focus:border-amber-500" />
+                </div>
+              )}
+              <div>
+                <label className="text-xxs uppercase tracking-wider text-slate-400 font-bold block mb-1">Email</label>
+                <input type="email" required value={playerEmail} onChange={(e) => setPlayerEmail(e.target.value)} placeholder="player@tactics.kz" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs focus:outline-none focus:border-amber-500" />
+              </div>
+              <div>
+                <label className="text-xxs uppercase tracking-wider text-slate-400 font-bold block mb-1">Пароль</label>
+                <input type="password" required value={playerPassword} onChange={(e) => setPlayerPassword(e.target.value)} placeholder="••••••••" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs focus:outline-none focus:border-amber-500" />
+              </div>
+              {authTab === "signup" && (
+                <div>
+                  <label className="text-xxs uppercase tracking-wider text-slate-400 font-bold block mb-1">Ваш Город</label>
+                  <select value={playerCity} onChange={(e) => setPlayerCity(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs focus:outline-none text-slate-300">
+                    <option value="Almaty">Алматы</option>
+                    <option value="Astana">Астана</option>
+                    <option value="Shymkent">Шымкент</option>
+                    <option value="Semey">Семей</option>
+                  </select>
+                </div>
+              )}
+              <button type="submit" className="w-full bg-gradient-to-r from-amber-500 to-orange-500 font-bold py-2.5 rounded-xl text-xs text-white transition mt-4 shadow-lg shadow-orange-500/10">
+                {authTab === "signup" ? "Создать аккаунт" : "Войти"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Экран матчмейкинга (Радар поиска) */}
+      {isMatchmaking && (
+        <div className="fixed inset-0 bg-slate-950/95 z-50 flex flex-col items-center justify-center space-y-6 text-center">
+          <div className="relative flex items-center justify-center">
+            <div className="absolute h-36 w-36 rounded-full border border-amber-500/20 animate-ping" />
+            <div className="absolute h-24 w-24 rounded-full border border-amber-500/40 animate-pulse" />
+            <Search className="h-8 w-8 text-amber-400 animate-spin" />
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-lg font-black text-white tracking-wide">Поиск гроссмейстера...</h3>
+            <p className="text-xs text-slate-500 font-medium">Сканируем активную таблицу лидеров Казахстана</p>
+          </div>
+        </div>
+      )}
+
+      {/* Экран окончания игры (Результаты матча + Разбор ИИ) */}
+      {winner && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 max-w-md w-full p-6 rounded-2xl text-center space-y-5 shadow-2xl">
+            <div>
+              <span className={`text-4xl block mb-2 ${winner === "w" ? "animate-bounce" : ""}`}>{winner === "w" ? "🏆" : "💀"}</span>
+              <h3 className={`font-black text-2xl tracking-tight ${winner === "w" ? "text-amber-400" : "text-red-500"}`}>
+                {winner === "w" ? "МАТЧ ВЫИГРАН!" : "ПОРАЖЕНИЕ"}
+              </h3>
+              {winner === "w" && <p className="text-xxs text-orange-400 font-bold tracking-wider uppercase mt-1">СТРИК ПРОДОЛЖЕН! 🔥</p>}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 bg-slate-950 p-4 rounded-xl border border-slate-800/60 text-left text-xs">
+              <div className="space-y-1">
+                <p className="text-slate-500 font-bold">Вы ({playerNickname}):</p>
+                <p className="font-mono text-emerald-400 font-bold text-sm">+{winner === "w" ? "25" : "-20"} Elo</p>
+                <p className="text-xxs text-slate-400">+{winner === "w" ? "500" : "0"} XP</p>
+              </div>
+              <div className="space-y-1 border-l border-slate-800 pl-3">
+                <p className="text-slate-500 font-bold">{gameMode === "online" ? matchedOpponent?.name : "ИИ-Бот"}:</p>
+                <p className={`font-mono font-bold text-sm ${winner === "w" ? "text-red-400" : "text-emerald-400"}`}>{winner === "w" ? "-20" : "+25"} Elo</p>
+              </div>
+            </div>
+
+            {aiCoachReport && (
+              <div className="bg-purple-950/20 border border-purple-900/40 p-4 rounded-xl text-left space-y-2">
+                <h4 className="font-bold text-xs text-purple-400 uppercase tracking-wider flex items-center"><BrainCircuit className="h-3.5 w-3.5 mr-1.5 text-purple-400" />Отчет ИИ-Помощника:</h4>
+                {aiCoachReport.map((line, idx) => <p key={idx} className="text-xxs text-slate-300 leading-relaxed">{line}</p>)}
               </div>
             )}
+
+            <button onClick={() => setBoard([])} className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-xl text-slate-200 transition">
+              Вернуться в лобби
+            </button>
           </div>
-          
-          <Leaderboard activeUser={isLoggedIn ? user : null} externalPlayers={players} />
         </div>
+      )}
 
-        <div className="lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-6">
-          <ModeCard 
-            title="NEURAL CORE" 
-            desc="Battle proprietary AI logic. Test multi-node tactical responses." 
-            icon={<Target className="w-10 h-10 text-primary" />}
-            onClick={() => onSelectMode('ai')}
-            extra={
-              <div className="flex gap-2 mt-6">
-                <Button variant={difficulty === 'easy' ? 'default' : 'outline'} className="rounded-xl text-[9px] font-black uppercase h-8 flex-1" onClick={(e) => { e.stopPropagation(); setDifficulty('easy'); }}>EASY</Button>
-                <Button variant={difficulty === 'medium' ? 'default' : 'outline'} className="rounded-xl text-[9px] font-black uppercase h-8 flex-1" onClick={(e) => { e.stopPropagation(); setDifficulty('medium'); }}>MEDIUM</Button>
-              </div>
-            }
-          />
-          <ModeCard 
-            title="GLOBAL GRID" 
-            desc="Matchmaking against elite humans. Live 3-min engagement." 
-            icon={<Zap className="w-10 h-10 text-primary" />}
-            onClick={() => onSelectMode('online')}
-            isHot
-          />
-          <ModeCard 
-            title="LOCAL COMBAT" 
-            desc="Offline tactical training. 2 Players, 1 Device engagement." 
-            icon={<Users className="w-10 h-10 text-primary" />}
-            onClick={() => onSelectMode('local')}
-          />
-          <ModeCard 
-            title="PRO MODULE" 
-            desc="Unlock AI Analytics & Global Pro Titles for just $5.99/mo." 
-            icon={<CreditCard className="w-10 h-10 text-primary" />}
-            onClick={onShowPro}
-          />
-        </div>
-      </main>
-
-      <Footer />
-    </div>
-  );
-}
-
-function ModeCard({ title, desc, icon, onClick, isHot, extra }: any) {
-  return (
-    <div onClick={onClick} className="glass p-10 rounded-[40px] border-white/5 transition-all group cursor-pointer hover:amber-glow relative overflow-hidden hover:-translate-y-2">
-      {isHot && <div className="absolute top-6 right-6 animate-pulse"><Badge className="bg-destructive text-white text-[9px] font-black uppercase italic tracking-tighter">LIVE GRID</Badge></div>}
-      <div className="mb-6">{icon}</div>
-      <h3 className="text-3xl font-headline font-black italic uppercase mb-3 text-primary tracking-tighter">{title}</h3>
-      <p className="text-[11px] text-muted-foreground leading-relaxed font-bold uppercase tracking-tight">{desc}</p>
-      {extra}
-    </div>
-  );
-}
-
-function ArenaScreen({ user, opponent, board, turn, isThinking, gameMode, onSquareClick, selected, captureChainPiece, onForfeit }: any) {
-  return (
-    <div className="min-h-screen flex flex-col items-center p-4 md:p-8">
-      <header className="w-full max-w-7xl flex items-center justify-between mb-8">
-        <div className="flex flex-col">
-          <h1 className="text-3xl font-headline font-black tracking-tighter uppercase italic text-primary">THE ARENA</h1>
-          <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">GRID PHASE ACTIVE</p>
-        </div>
-        <Button variant="ghost" onClick={onForfeit} className="rounded-full text-xs font-bold uppercase tracking-widest border border-white/5 hover:bg-white/5">
-          <LogOut className="w-4 h-4 mr-2" /> FORFEIT MATCH
-        </Button>
-      </header>
-
-      <main className="w-full max-w-7xl grid grid-cols-1 lg:grid-cols-12 gap-8">
-        <div className="lg:col-span-3">
-          <MiniPlayerCard profile={user} title="COMMANDER" isPlayer />
-        </div>
-
-        <div className="lg:col-span-6 flex flex-col items-center gap-6">
-          <div className="w-full glass py-3 rounded-full amber-glow flex items-center justify-center gap-4">
-             {isThinking ? (
-                <div className="flex items-center gap-2 text-primary animate-pulse">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span className="text-sm font-black uppercase italic tracking-tighter">
-                    {gameMode === 'ai' ? "🤖 AI ENGINE PROCESSING..." : "⚡ OPPONENT DEPLOYING..."}
-                  </span>
-                </div>
-             ) : (
-                <span className="text-sm font-black uppercase tracking-widest flex items-center gap-2 italic">
-                  <div className={`w-2.5 h-2.5 rounded-full ${turn === 'w' ? 'bg-white shadow-[0_0_8px_#fff]' : 'bg-primary shadow-[0_0_8px_hsl(var(--primary))]'}`} />
-                  {turn === 'w' ? "YOUR ACTION" : "OPPONENT ACTION"}
-                </span>
-             )}
+      {/* Модалка профиля лидеров */}
+      {selectedLeaderboardPlayer && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 max-w-xs w-full p-6 rounded-2xl text-center space-y-4 shadow-2xl">
+            <img src={selectedLeaderboardPlayer.avatar} alt="Profile" className="w-20 h-20 mx-auto rounded-2xl bg-slate-950 border border-slate-800 p-1" />
+            <div>
+              <h3 className="font-black text-lg text-white">{selectedLeaderboardPlayer.name}</h3>
+              <p className="text-xs text-amber-400 font-medium">Ранг в системе • {selectedLeaderboardPlayer.city}</p>
+            </div>
+            <div className="bg-slate-950 p-3 rounded-xl text-left text-xs space-y-1.5 font-medium text-slate-300 border border-slate-800/50">
+              <p>Уровень Стратега: <span className="text-white font-bold">Level {selectedLeaderboardPlayer.level}</span></p>
+              <p>Текущий рейтинг: <span className="text-amber-400 font-mono font-bold">{selectedLeaderboardPlayer.rating} Elo</span></p>
+              <p>Процент побед: <span className="text-emerald-400 font-bold">{selectedLeaderboardPlayer.winRate}</span></p>
+              <p>Лучший стрик: <span className="text-orange-400 font-bold">{selectedLeaderboardPlayer.streak} 🔥</span></p>
+            </div>
+            <button onClick={() => setSelectedLeaderboardPlayer(null)} className="w-full py-2 bg-slate-800 text-xs font-bold rounded-xl hover:bg-slate-700 text-slate-200">
+              Закрыть профиль
+            </button>
           </div>
+        </div>
+      )}
 
-          <div className="relative p-2 glass rounded-[40px] amber-glow border-white/10">
-            <div className="grid grid-cols-8 grid-rows-8 w-[320px] h-[320px] md:w-[480px] md:h-[480px] bg-muted/10 border-4 border-muted/20 rounded-2xl overflow-hidden shadow-2xl">
-              {board.map((row: any[], r: number) => 
-                row.map((piece, c) => {
-                  const isDark = (r + c) % 2 === 1;
-                  const isSelected = selected?.r === r && selected?.c === c;
-                  const moves = selected ? (
-                    captureChainPiece && selected.r === captureChainPiece.r && selected.c === captureChainPiece.c 
-                      ? getValidMoves(board, selected.r, selected.c, true)
-                      : getAllValidMoves(board, turn).filter(m => m.from.r === selected.r && m.from.c === selected.c)
-                  ) : [];
-                  const isTarget = moves.some(m => m.to.r === r && m.to.c === c);
-
-                  return (
-                    <div 
-                      key={`${r}-${c}`}
-                      onClick={() => onSquareClick(r, c)}
-                      className={`relative flex items-center justify-center cursor-pointer transition-all ${
-                        isDark ? 'bg-black/40' : 'bg-transparent'
-                      } ${isTarget ? 'bg-primary/20 ring-inset ring-2 ring-primary/40' : ''}`}
-                    >
-                      {piece && (
-                        <div className={`
-                          w-[75%] h-[75%] rounded-full flex items-center justify-center transition-all duration-300
-                          ${piece.startsWith('w') ? 'piece-white' : 'piece-black'}
-                          ${isSelected ? 'scale-110 ring-4 ring-primary' : ''}
-                          ${captureChainPiece && r === captureChainPiece.r && c === captureChainPiece.c ? 'ring-4 ring-secondary animate-pulse' : ''}
-                        `}>
-                          {piece.endsWith('k') && <Crown className={`w-1/2 h-1/2 ${piece.startsWith('w') ? 'text-black/30' : 'text-primary'}`} />}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
-              )}
+      {/* Модалка Pro тарифа */}
+      {isProModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 max-w-xs w-full p-5 rounded-2xl space-y-4 text-center">
+            <h3 className="font-black text-xl text-amber-400">MindTactics Pro</h3>
+            <p className="text-xs text-slate-400 leading-relaxed">Откройте продвинутый анализ ошибок, кастомные неоновые скины доски и премиум-аватарки всего за <span className="font-bold text-white">$5.99 / месяц</span>.</p>
+            <div className="grid grid-cols-2 gap-2 pt-2">
+              <button onClick={() => setIsProModalOpen(false)} className="py-2 border border-slate-800 rounded-xl text-xs font-bold text-slate-400">Отмена</button>
+              <button onClick={() => setIsProModalOpen(false)} className="py-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-bold rounded-xl text-xs shadow-md">Купить за $5.99</button>
             </div>
           </div>
         </div>
+      )}
 
-        <div className="lg:col-span-3">
-          <MiniPlayerCard profile={opponent} title="OPPONENT" />
-        </div>
-      </main>
-      <Footer />
+      {/* ФУТЕР С АВТОРСТВОМ */}
+      <footer className="border-t border-slate-900 py-6 text-center text-xxs text-slate-600 w-full bg-slate-950">
+        <p className="font-bold">Mind Tactics: Elite Checkers System © 2026</p>
+        <p className="text-slate-700 pt-0.5">Designed & Developed by <span className="font-bold text-amber-500/70">TEMIRLAN ZHUNUSSOV</span>. All rights reserved.</p>
+      </footer>
     </div>
-  );
-}
-
-function MiniPlayerCard({ profile, title, isPlayer }: any) {
-  return (
-    <div className={`glass p-5 rounded-3xl border-white/5 space-y-4 amber-glow ${isPlayer ? 'bg-primary/5' : ''}`}>
-      <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{title}</h3>
-      <div className="flex items-center gap-4">
-        <img src={profile?.avatar || AVATARS[0]} className="w-14 h-14 rounded-full border-2 border-primary/20" alt="" />
-        <div>
-          <h4 className="font-headline font-black text-lg uppercase italic leading-none truncate w-32">{profile?.name || '---'}</h4>
-          <p className="text-[10px] font-bold text-primary italic">{profile?.elo || 1200} ELO</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ResultCard({ profile, eloChange, xpProgress, isOpponent }: any) {
-  return (
-    <div className="glass p-4 rounded-3xl space-y-3 bg-white/5 border-white/10">
-      <img src={profile?.avatar} className={`w-16 h-16 rounded-full mx-auto border-2 ${isOpponent ? 'border-destructive/20' : 'border-primary/20'}`} alt="" />
-      <div className="space-y-1">
-        <p className="text-xs font-black uppercase italic">{profile?.name}</p>
-        <p className={`text-lg font-black italic ${eloChange > 0 ? 'text-emerald-400' : 'text-destructive'}`}>
-          {profile?.elo} ({eloChange > 0 ? '+' : ''}{eloChange} ELO)
-        </p>
-        {!isOpponent && (
-          <div className="space-y-1 pt-2">
-            <p className="text-[8px] font-black uppercase text-muted-foreground">XP PROGRESS</p>
-            <Progress value={xpProgress} className="h-1 bg-muted/30" />
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function MatchmakingScreen({ opponent }: any) {
-  const [dots, setDots] = useState('');
-  useEffect(() => {
-    const interval = setInterval(() => setDots(d => d.length < 3 ? d + '.' : ''), 400);
-    return () => clearInterval(interval);
-  }, []);
-
-  return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-background p-8 relative overflow-hidden">
-       <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20">
-          <div className="w-[800px] h-[800px] border border-primary/20 rounded-full animate-ping" />
-          <Globe className="absolute w-[400px] h-[400px] text-primary/10 animate-[spin_20s_linear_infinite]" />
-       </div>
-
-       <div className="relative text-center space-y-12 max-w-2xl w-full">
-          {!opponent ? (
-            <div className="flex flex-col items-center gap-6">
-              <Loader2 className="w-20 h-20 animate-spin text-primary" />
-              <h1 className="text-5xl font-headline font-black italic uppercase tracking-tighter">SCANNING GRID{dots}</h1>
-              <p className="text-[10px] font-bold uppercase tracking-[0.8em] text-muted-foreground">CONNECTING TO GLOBAL NODES</p>
-            </div>
-          ) : (
-            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-10 duration-500">
-               <div className="flex flex-col items-center gap-4">
-                  <Crown className="w-12 h-12 text-primary animate-bounce" />
-                  <h1 className="text-4xl font-headline font-black italic uppercase tracking-tighter">OPPONENT IDENTIFIED</h1>
-               </div>
-               
-               <div className="glass p-10 rounded-[50px] amber-glow flex items-center gap-8 bg-black/40 border-white/10">
-                  <div className="relative">
-                    <img src={opponent.avatar} className="w-32 h-32 rounded-full border-4 border-primary" alt="" />
-                    <div className="absolute -bottom-2 -right-2 bg-primary text-background px-4 py-1 rounded-full text-sm font-black italic">LVL {opponent.level}</div>
-                  </div>
-                  <div className="text-left space-y-2">
-                     <h2 className="text-4xl font-black italic uppercase tracking-tighter">{opponent.name}</h2>
-                     <div className="flex gap-4">
-                        <div className="text-xs font-bold text-primary italic uppercase tracking-widest">{opponent.elo} ELO</div>
-                        <div className="text-xs font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-1">
-                          <MapPin className="w-3.5 h-3.5" /> {opponent.city}
-                        </div>
-                     </div>
-                  </div>
-               </div>
-               <p className="text-xs text-muted-foreground font-black uppercase tracking-[0.3em] animate-pulse">ARENA DEPLOYMENT IN PROGRESS...</p>
-            </div>
-          )}
-       </div>
-       <Footer />
-    </div>
-  );
-}
-
-function AuthForm({ onFinish }: { onFinish: (data: any) => void }) {
-  const [activeTab, setActiveTab] = useState('signup');
-  const [formData, setFormData] = useState({ name: '', email: '', password: '', city: 'Almaty', avatar: AVATARS[0] });
-
-  return (
-    <Card className="w-full glass border-white/10 overflow-hidden amber-glow rounded-[40px]">
-      <CardContent className="p-8 space-y-8">
-        <div className="text-center space-y-2">
-          <h1 className="text-4xl font-headline font-black italic uppercase tracking-tighter text-primary leading-none">MIND TACTICS</h1>
-          <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-muted-foreground">IDENTITY INITIALIZATION</p>
-        </div>
-
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid grid-cols-2 h-12 glass border-white/10 rounded-2xl mb-8 p-1">
-            <TabsTrigger value="signup" className="rounded-xl font-black italic uppercase text-xs data-[state=active]:bg-primary data-[state=active]:text-background">SIGN UP</TabsTrigger>
-            <TabsTrigger value="signin" className="rounded-xl font-black italic uppercase text-xs data-[state=active]:bg-primary data-[state=active]:text-background">SIGN IN</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="signup" className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Codename</label>
-              <Input placeholder="Nickname" className="h-11 glass border-white/10 rounded-xl" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
-            </div>
-            <div className="space-y-2">
-              <label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Secure Email</label>
-              <Input type="email" placeholder="Email" className="h-11 glass border-white/10 rounded-xl" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-               <div className="space-y-2">
-                  <label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Password</label>
-                  <Input type="password" placeholder="••••" className="h-11 glass border-white/10 rounded-xl" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} />
-               </div>
-               <div className="space-y-2">
-                  <label className="text-[9px] font-black uppercase text-muted-foreground ml-1">City</label>
-                  <Select value={formData.city} onValueChange={(v) => setFormData({...formData, city: v})}>
-                     <SelectTrigger className="h-11 glass border-white/10 rounded-xl font-bold uppercase text-[10px] italic">
-                        <SelectValue />
-                     </SelectTrigger>
-                     <SelectContent className="glass border-white/10">
-                        {CITIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                     </SelectContent>
-                  </Select>
-               </div>
-            </div>
-
-            <div className="space-y-4 pt-2">
-              <label className="text-[9px] font-black uppercase text-center block text-muted-foreground">Identity Signature (Avatar)</label>
-              <div className="flex justify-center gap-3">
-                {AVATARS.map((av) => (
-                  <button
-                    key={av}
-                    onClick={() => setFormData({...formData, avatar: av})}
-                    className={`relative rounded-2xl overflow-hidden border-2 transition-all w-12 h-12 ${
-                      formData.avatar === av ? 'border-primary ring-2 ring-primary/50' : 'border-transparent hover:border-white/20'
-                    }`}
-                  >
-                    <img src={av} alt="Avatar" className="w-full h-full" />
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <Button 
-              onClick={() => onFinish({ ...formData, xp: 0, streak: 0, elo: 1200 })}
-              disabled={!formData.name || !formData.email || !formData.password}
-              className="w-full h-14 bg-primary text-background font-black text-lg rounded-2xl italic mt-4"
-            >
-              FINALIZE IDENTITY <ArrowRight className="w-5 h-5 ml-2" />
-            </Button>
-          </TabsContent>
-
-          <TabsContent value="signin" className="space-y-6">
-             <div className="space-y-4">
-               <div className="space-y-2">
-                  <label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Email</label>
-                  <Input placeholder="Email" className="h-12 glass border-white/10 rounded-xl" />
-               </div>
-               <div className="space-y-2">
-                  <label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Password</label>
-                  <Input type="password" placeholder="••••••••" className="h-12 glass border-white/10 rounded-xl" />
-               </div>
-             </div>
-             <Button className="w-full h-14 glass hover:bg-white/5 font-black uppercase italic rounded-2xl text-primary border-primary/20">
-                RECONNECT TO GRID
-             </Button>
-          </TabsContent>
-        </Tabs>
-      </CardContent>
-    </Card>
-  );
-}
-
-function Footer() {
-  return (
-    <footer className="w-full max-w-7xl mx-auto mt-auto py-12 text-center border-t border-white/5">
-      <p className="text-[10px] text-muted-foreground uppercase tracking-[0.4em] font-black italic">
-        Mind Tactics: Elite Checkers System © 2026 • Designed & Developed by TEMIRLAN ZHUNUSSOV. All rights reserved.
-      </p>
-    </footer>
   );
 }
